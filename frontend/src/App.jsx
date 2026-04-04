@@ -115,7 +115,10 @@ function ProfileSection({ title, profile, emptyText }) {
 }
 
 export default function App() {
+  const [inputMode, setInputMode] = useState('text')
   const [content, setContent] = useState('')
+  const [selectedFileName, setSelectedFileName] = useState('')
+  const [conversationText, setConversationText] = useState('')
   const [result, setResult] = useState(null)
   const [historyProfiles, setHistoryProfiles] = useState([])
   const [error, setError] = useState('')
@@ -138,10 +141,27 @@ export default function App() {
     loadHistoryProfiles()
   }, [])
 
+  async function handleFileChange(event) {
+    const file = event.target.files?.[0]
+    if (!file) {
+      return
+    }
+
+    try {
+      const text = await file.text()
+      setContent(text)
+      setSelectedFileName(file.name)
+      setError('')
+    } catch {
+      setError('读取文件失败，请重新选择 txt 或 md 文档')
+    }
+  }
+
   async function handleSubmit(event) {
     event.preventDefault()
 
-    const trimmed = content.trim()
+    const sourceContent = inputMode === 'conversation' ? conversationText : content
+    const trimmed = sourceContent.trim()
     if (!trimmed) {
       setError('请先输入内容')
       setResult(null)
@@ -183,13 +203,58 @@ export default function App() {
         <p className="desc">当前页面展示规则版气泡画像、生成版画像，以及已保存的历史画像。</p>
 
         <form onSubmit={handleSubmit} className="form">
-          <label htmlFor="content" className="label">输入资料内容</label>
-          <textarea
-            id="content"
-            value={content}
-            onChange={(event) => setContent(event.target.value)}
-            placeholder="输入一段你的资料、观点、自述或聊天片段..."
-          />
+          <div className="mode-switch">
+            <button
+              type="button"
+              className={`mode-button ${inputMode === 'text' ? 'mode-button-active' : ''}`}
+              onClick={() => setInputMode('text')}
+            >
+              文本 / 文档
+            </button>
+            <button
+              type="button"
+              className={`mode-button ${inputMode === 'conversation' ? 'mode-button-active' : ''}`}
+              onClick={() => setInputMode('conversation')}
+            >
+              对话
+            </button>
+          </div>
+
+          {inputMode === 'text' ? (
+            <>
+              <label htmlFor="source-file" className="label">导入文档（txt / md）</label>
+              <input
+                id="source-file"
+                type="file"
+                accept=".txt,.md,text/plain,text/markdown"
+                onChange={handleFileChange}
+              />
+              {selectedFileName ? (
+                <p className="file-hint">当前已导入：{selectedFileName}</p>
+              ) : (
+                <p className="file-hint">还没有导入文档，也可以直接在下面粘贴内容</p>
+              )}
+
+              <label htmlFor="content" className="label">输入资料内容</label>
+              <textarea
+                id="content"
+                value={content}
+                onChange={(event) => setContent(event.target.value)}
+                placeholder="输入一段你的资料、观点、自述或聊天片段..."
+              />
+            </>
+          ) : (
+            <>
+              <label htmlFor="conversation" className="label">输入对话内容</label>
+              <textarea
+                id="conversation"
+                value={conversationText}
+                onChange={(event) => setConversationText(event.target.value)}
+                placeholder="示例：\n用户：我最近在学 Java 并发。\n助手：你更想从线程池还是锁开始？"
+              />
+              <p className="file-hint">当前先用纯文本方式录入对话，后续再扩展更正式的聊天导入格式。</p>
+            </>
+          )}
 
           <button type="submit" disabled={loading}>
             {loading ? '提交中...' : '提交到 /profile'}

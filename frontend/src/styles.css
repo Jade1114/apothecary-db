@@ -50,8 +50,34 @@ p {
   gap: 12px;
 }
 
+.mode-switch {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.mode-button {
+  background: #e5e7eb;
+  color: #111827;
+}
+
+.mode-button-active {
+  background: #111827;
+  color: #fff;
+}
+
 .label {
   font-weight: 600;
+}
+
+input[type='file'] {
+  max-width: 360px;
+}
+
+.file-hint {
+  margin: -4px 0 0;
+  color: #667085;
+  font-size: 14px;
 }
 
 textarea {
