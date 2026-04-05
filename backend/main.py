@@ -10,13 +10,13 @@ from pydantic import BaseModel
 
 from embedding_service import EmbeddingService
 from ingest_flow import IngestFlow
-from llm_service import PlaceholderLLMService
+from llm_service import LLMService
 from retrieve_flow import RetrieveFlow
 from storage import init_db, list_documents, list_profiles, save_document, save_profile
 from vector_store import VectorStore
 
 app = FastAPI()
-llm_service = PlaceholderLLMService()
+llm_service = LLMService()
 init_db()
 
 embedding_service = None
