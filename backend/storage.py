@@ -79,3 +79,17 @@ def list_profiles() -> list[dict[str, Any]]:
         profiles.append(profile)
 
     return profiles
+
+
+def get_latest_profile() -> dict[str, Any] | None:
+    with get_connection() as connection:
+        row = connection.execute(
+            "SELECT id, document_id, summary, profile_json, created_at FROM profiles ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+
+    if row is None:
+        return None
+
+    profile = dict(row)
+    profile["profile_json"] = json.loads(profile["profile_json"])
+    return profile

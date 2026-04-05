@@ -12,7 +12,7 @@ from embedding_service import EmbeddingService
 from ingest_flow import IngestFlow
 from llm_service import LLMService
 from retrieve_flow import RetrieveFlow
-from storage import init_db, list_documents, list_profiles, save_document, save_profile
+from storage import get_latest_profile, init_db, list_documents, list_profiles, save_document, save_profile
 from vector_store import VectorStore
 
 app = FastAPI()
@@ -56,6 +56,12 @@ TECH_INTEREST_KEYWORDS = [
 
 class ProfileRequest(BaseModel):
     content: str
+
+
+class IngestRequest(BaseModel):
+    content: str
+    sourceType: str = "text"
+    sourceName: str | None = None
 
 
 def split_into_chunks(content: str) -> list[str]:
@@ -145,6 +151,49 @@ def deduplicate_evidence(groups: Dict[str, List[str]]) -> List[str]:
     return ordered_evidence
 
 
+def generate_profile_from_documents(documents: List[dict]) -> dict:
+    rag_evidence_by_dimension: Dict[str, List[str]] = {
+        "技术兴趣": [],
+        "关注话题": [],
+        "表达风格": [],
+    }
+
+    if retrieve_flow:
+        for document in documents:
+            document_id = int(document["id"])
+            for dimension_name in rag_evidence_by_dimension.keys():
+                retrieve_result = retrieve_flow.retrieve_evidence(
+                    document_id=document_id,
+                    dimension_name=dimension_name,
+                    limit=5,
+                )
+                rag_evidence_by_dimension[dimension_name].extend(retrieve_result["evidence"])
+
+    combined_evidence = deduplicate_evidence(rag_evidence_by_dimension)
+    generated_result = llm_service.generate_profile(combined_evidence)
+    generated_profile = generated_result["profile"]
+    latest_document_id = int(documents[0]["id"]) if documents else 0
+    profile_id = save_profile(latest_document_id, generated_profile)
+
+    return {
+        "generatedProfile": generated_profile,
+        "generationMeta": {
+            "provider": generated_result["provider"],
+            "prompt": generated_result["prompt"],
+            "ragEnabled": ingest_flow is not None and retrieve_flow is not None,
+            "ragSetupError": rag_setup_error,
+        },
+        "retrieval": {
+            "byDimension": rag_evidence_by_dimension,
+            "combinedEvidence": combined_evidence,
+        },
+        "storage": {
+            "profileId": profile_id,
+            "documentId": latest_document_id,
+        },
+    }
+
+
 @app.get("/")
 def read_root():
     return {"message": "hello"}
@@ -165,6 +214,62 @@ def get_profiles():
     return {"profiles": list_profiles()}
 
 
+@app.get("/profile/current")
+def get_current_profile():
+    profile = get_latest_profile()
+    return {"profile": profile}
+
+
+@app.post("/ingest")
+def ingest_content(request: IngestRequest):
+    chunks = split_into_chunks(request.content)
+
+    if ingest_flow:
+        ingest_result = ingest_flow.ingest_document(
+            content=request.content,
+            source_type=request.sourceType,
+            source_name=request.sourceName,
+        )
+        return {
+            "success": True,
+            "documentId": ingest_result["document_id"],
+            "chunkCount": ingest_result["chunk_count"],
+            "sourceType": request.sourceType,
+            "sourceName": request.sourceName,
+        }
+
+    document_id = save_document(request.content)
+    return {
+        "success": True,
+        "documentId": document_id,
+        "chunkCount": len(chunks),
+        "sourceType": request.sourceType,
+        "sourceName": request.sourceName,
+        "warning": rag_setup_error,
+    }
+
+
+@app.post("/profile/generate")
+def generate_profile():
+    documents = list_documents()
+    if not documents:
+        return {
+            "generatedProfile": None,
+            "generationMeta": {
+                "provider": llm_service.provider,
+                "ragEnabled": ingest_flow is not None and retrieve_flow is not None,
+                "ragSetupError": rag_setup_error,
+            },
+            "retrieval": {
+                "byDimension": {},
+                "combinedEvidence": [],
+            },
+            "storage": None,
+        }
+
+    return generate_profile_from_documents(documents)
+
+
 @app.post("/profile")
 def get_profile(request: ProfileRequest):
     chunks = split_into_chunks(request.content)
@@ -172,43 +277,19 @@ def get_profile(request: ProfileRequest):
     matched_sentences = extract_relevant_sentences(matched_chunks)
     rule_based_profile = build_rule_based_profile(matched_sentences)
 
-    rag_evidence_by_dimension: Dict[str, List[str]] = {}
-    document_id = None
-    chunk_count = len(chunks)
-
-    if ingest_flow and retrieve_flow:
-        ingest_result = ingest_flow.ingest_document(
+    ingest_result = ingest_content(
+        IngestRequest(
             content=request.content,
-            source_type="text",
-            source_name=None,
+            sourceType="text",
+            sourceName=None,
         )
-        document_id = ingest_result["document_id"]
-        chunk_count = ingest_result["chunk_count"]
-
-        for dimension_name in ["技术兴趣", "关注话题", "表达风格"]:
-            retrieve_result = retrieve_flow.retrieve_evidence(
-                document_id=document_id,
-                dimension_name=dimension_name,
-                limit=5,
-            )
-            rag_evidence_by_dimension[dimension_name] = retrieve_result["evidence"]
-    else:
-        document_id = save_document(request.content)
-        rag_evidence_by_dimension = {
-            "技术兴趣": matched_sentences,
-            "关注话题": [],
-            "表达风格": [],
-        }
-
-    combined_evidence = deduplicate_evidence(rag_evidence_by_dimension)
-    generated_result = llm_service.generate_profile(combined_evidence)
-    generated_profile = generated_result["profile"]
-    profile_id = save_profile(document_id, generated_profile)
+    )
+    generated_result = generate_profile_from_documents([{"id": ingest_result["documentId"]}])
 
     return {
         "received": True,
         "length": len(request.content),
-        "chunkCount": chunk_count,
+        "chunkCount": ingest_result["chunkCount"],
         "chunks": chunks,
         "matchedChunkCount": len(matched_chunks),
         "matchedChunks": matched_chunks,
@@ -216,19 +297,8 @@ def get_profile(request: ProfileRequest):
         "matchedSentences": matched_sentences,
         "keywords": TECH_INTEREST_KEYWORDS,
         "ruleBasedProfile": rule_based_profile,
-        "generatedProfile": generated_profile,
-        "generationMeta": {
-            "provider": generated_result["provider"],
-            "prompt": generated_result["prompt"],
-            "ragEnabled": ingest_flow is not None and retrieve_flow is not None,
-            "ragSetupError": rag_setup_error,
-        },
-        "retrieval": {
-            "byDimension": rag_evidence_by_dimension,
-            "combinedEvidence": combined_evidence,
-        },
-        "storage": {
-            "documentId": document_id,
-            "profileId": profile_id,
-        },
+        "generatedProfile": generated_result["generatedProfile"],
+        "generationMeta": generated_result["generationMeta"],
+        "retrieval": generated_result["retrieval"],
+        "storage": generated_result["storage"],
     }

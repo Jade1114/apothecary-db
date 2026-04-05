@@ -1,5 +1,26 @@
 import { useEffect, useMemo, useState } from 'react'
 
+const DIMENSION_ORDER = ['技术兴趣', '关注话题', '表达风格']
+
+const DIMENSION_HINTS = {
+  技术兴趣: '体现用户偏好的技术方向和投入重点',
+  关注话题: '体现用户持续关注和反复讨论的问题域',
+  表达风格: '体现用户说话方式、沟通习惯和推进方式'
+}
+
+function buildDimensionCards(byDimension = {}) {
+  const cards = DIMENSION_ORDER.map((dimension) => [dimension, byDimension[dimension] || []])
+  const known = new Set(DIMENSION_ORDER)
+
+  Object.entries(byDimension).forEach(([dimension, evidence]) => {
+    if (!known.has(dimension)) {
+      cards.push([dimension, evidence || []])
+    }
+  })
+
+  return cards
+}
+
 function BubbleProfileSection({ title, profile, emptyText }) {
   const [selectedItem, setSelectedItem] = useState(null)
 
@@ -132,6 +153,51 @@ function RegenerateActionBar({ onRegenerate, loading, canRegenerate }) {
   )
 }
 
+function normalizeProfilePayload(payload) {
+  if (!payload) {
+    return null
+  }
+
+  // /profile/current -> { profile: { profile_json, ... } }
+  if (payload.profile) {
+    const profileRow = payload.profile
+    return {
+      generatedProfile: profileRow.profile_json || null,
+      ruleBasedProfile: null,
+      retrieval: {
+        byDimension: {},
+        combinedEvidence: []
+      },
+      generationMeta: {
+        provider: 'saved-profile',
+        ragEnabled: null,
+        ragSetupError: null
+      },
+      storage: {
+        profileId: profileRow.id,
+        documentId: profileRow.document_id
+      },
+      length: null,
+      chunkCount: null,
+      matchedChunkCount: null,
+      matchedSentenceCount: null
+    }
+  }
+
+  // /profile/generate -> already close to UI shape
+  return {
+    generatedProfile: payload.generatedProfile || null,
+    ruleBasedProfile: payload.ruleBasedProfile || null,
+    retrieval: payload.retrieval || { byDimension: {}, combinedEvidence: [] },
+    generationMeta: payload.generationMeta || {},
+    storage: payload.storage || null,
+    length: payload.length ?? null,
+    chunkCount: payload.chunkCount ?? null,
+    matchedChunkCount: payload.matchedChunkCount ?? null,
+    matchedSentenceCount: payload.matchedSentenceCount ?? null
+  }
+}
+
 function InputPanel({
   inputMode,
   setInputMode,
@@ -140,21 +206,23 @@ function InputPanel({
   selectedFileName,
   conversationText,
   setConversationText,
-  loading,
+  ingesting,
+  generating,
   error,
   onFileChange,
-  onSubmit,
+  onIngest,
   onRegenerate,
-  canRegenerate
+  canRegenerate,
+  ingestHint
 }) {
   return (
     <section className="panel input-panel">
       <div className="panel-head">
         <h2>输入与操作区</h2>
-        <p>聚焦当前画像生成，支持文本 / 文档与对话输入。</p>
+        <p>先把资料入库，再基于已入库资料生成当前画像。</p>
       </div>
 
-      <form onSubmit={onSubmit} className="form">
+      <form onSubmit={onIngest} className="form">
         <div className="mode-switch">
           <button
             type="button"
@@ -215,13 +283,15 @@ function InputPanel({
         )}
 
         <div className="action-row">
-          <button type="submit" disabled={loading}>
-            {loading ? '提交中...' : '生成当前画像'}
+          <button type="submit" disabled={ingesting || generating}>
+            {ingesting ? '入库中...' : '资料入库'}
           </button>
         </div>
       </form>
 
-      <RegenerateActionBar onRegenerate={onRegenerate} loading={loading} canRegenerate={canRegenerate} />
+      {ingestHint ? <p className="action-hint">{ingestHint}</p> : null}
+
+      <RegenerateActionBar onRegenerate={onRegenerate} loading={generating} canRegenerate={canRegenerate} />
 
       {error ? <p className="error-text">{error}</p> : null}
     </section>
@@ -229,10 +299,8 @@ function InputPanel({
 }
 
 function CurrentProfilePanel({ result }) {
-  const summaryText =
-    result?.generatedProfile?.summary ||
-    result?.ruleBasedProfile?.summary ||
-    '当前暂无 summary，可先查看下方规则版与生成版画像。'
+  const summaryText = result?.generatedProfile?.summary || '当前暂无主画像 summary，请先生成。'
+  const dimensionCards = buildDimensionCards(result?.retrieval?.byDimension || {})
 
   return (
     <section className="panel current-panel">
@@ -251,19 +319,19 @@ function CurrentProfilePanel({ result }) {
           <section className="meta-grid">
             <div className="meta-card">
               <span className="meta-label">原始长度</span>
-              <strong>{result.length}</strong>
+              <strong>{result.length ?? '-'}</strong>
             </div>
             <div className="meta-card">
               <span className="meta-label">段落数</span>
-              <strong>{result.chunkCount}</strong>
+              <strong>{result.chunkCount ?? '-'}</strong>
             </div>
             <div className="meta-card">
               <span className="meta-label">命中段落</span>
-              <strong>{result.matchedChunkCount}</strong>
+              <strong>{result.matchedChunkCount ?? '-'}</strong>
             </div>
             <div className="meta-card">
               <span className="meta-label">命中句子</span>
-              <strong>{result.matchedSentenceCount}</strong>
+              <strong>{result.matchedSentenceCount ?? '-'}</strong>
             </div>
             <div className="meta-card">
               <span className="meta-label">生成器</span>
@@ -271,29 +339,31 @@ function CurrentProfilePanel({ result }) {
             </div>
           </section>
 
-          <BubbleProfileSection
-            title="规则版画像"
-            profile={result.ruleBasedProfile}
-            emptyText="规则版画像暂时为空"
-          />
-
-          <ProfileSection
-            title="生成版画像"
-            profile={result.generatedProfile}
-            emptyText="生成版画像暂时为空"
-          />
+          <ProfileSection title="当前主画像" profile={result.generatedProfile} emptyText="当前主画像暂时为空" />
 
           <section className="result-panel">
             <h3>检索结果 · 按维度</h3>
-            {Object.keys(result.retrieval?.byDimension || {}).length ? (
+            {dimensionCards.length ? (
               <div className="dimension-list retrieval-grid">
-                {Object.entries(result.retrieval.byDimension).map(([dimension, evidence]) => (
-                  <article key={dimension} className="dimension-card">
-                    <h4>{dimension}</h4>
+                {dimensionCards.map(([dimension, evidence]) => (
+                  <article key={dimension} className="dimension-card retrieval-dimension-card">
+                    <div className="retrieval-card-head">
+                      <h4>
+                        {dimension} · {evidence?.length || 0}条
+                      </h4>
+                      {DIMENSION_HINTS[dimension] ? (
+                        <p className="dimension-hint">{DIMENSION_HINTS[dimension]}</p>
+                      ) : null}
+                    </div>
                     {evidence?.length ? (
                       <div className="evidence-list">
                         {evidence.map((sentence, index) => (
-                          <blockquote key={`${dimension}-${index}`}>{sentence}</blockquote>
+                          <blockquote
+                            key={`${dimension}-${index}`}
+                            className={index === 0 ? 'evidence-primary' : ''}
+                          >
+                            {sentence}
+                          </blockquote>
                         ))}
                       </div>
                     ) : (
@@ -307,12 +377,14 @@ function CurrentProfilePanel({ result }) {
             )}
           </section>
 
-          <section className="result-panel">
-            <h3>检索结果 · 合并依据</h3>
+          <section className="result-panel retrieval-combined-panel">
+            <h3>最终送入生成模型的依据</h3>
             {result.retrieval?.combinedEvidence?.length ? (
               <div className="evidence-list">
                 {result.retrieval.combinedEvidence.map((sentence, index) => (
-                  <blockquote key={`combined-${index}`}>{sentence}</blockquote>
+                  <blockquote key={`combined-${index}`} className="combined-evidence-item">
+                    {sentence}
+                  </blockquote>
                 ))}
               </div>
             ) : (
@@ -327,8 +399,8 @@ function CurrentProfilePanel({ result }) {
         </>
       ) : (
         <section className="result-panel">
-          <h3>当前画像</h3>
-          <p className="empty-text">还没有请求，先在上方输入并生成画像。</p>
+          <h3>当前主画像</h3>
+          <p className="empty-text">当前没有可展示的主画像，请先完成资料入库并生成。</p>
         </section>
       )}
     </section>
@@ -342,8 +414,28 @@ export default function App() {
   const [conversationText, setConversationText] = useState('')
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [lastSubmittedContent, setLastSubmittedContent] = useState('')
+  const [ingesting, setIngesting] = useState(false)
+  const [generating, setGenerating] = useState(false)
+  const [ingestHint, setIngestHint] = useState('')
+
+  useEffect(() => {
+    async function loadCurrentProfile() {
+      try {
+        const response = await fetch('/profile/current')
+        const data = await response.json()
+
+        if (!response.ok) {
+          throw new Error(data.detail || '获取当前画像失败')
+        }
+
+        setResult(normalizeProfilePayload(data))
+      } catch (requestError) {
+        setError(requestError.message)
+      }
+    }
+
+    loadCurrentProfile()
+  }, [])
 
   async function handleFileChange(event) {
     const file = event.target.files?.[0]
@@ -361,24 +453,28 @@ export default function App() {
     }
   }
 
-  async function requestProfile(sourceText) {
+  async function requestIngest(sourceText) {
     const trimmed = sourceText.trim()
     if (!trimmed) {
-      setError('请先输入内容')
-      setResult(null)
+      setError('请先输入资料内容')
       return
     }
 
-    setLoading(true)
+    setIngesting(true)
     setError('')
+    setIngestHint('')
 
     try {
-      const response = await fetch('/profile', {
+      const response = await fetch('/ingest', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ content: trimmed })
+        body: JSON.stringify({
+          content: trimmed,
+          sourceType: inputMode === 'conversation' ? 'conversation' : 'text',
+          sourceName: selectedFileName || null
+        })
       })
 
       const data = await response.json()
@@ -387,25 +483,45 @@ export default function App() {
         throw new Error(data.detail || '请求失败')
       }
 
-      setResult(data)
-      setLastSubmittedContent(trimmed)
+      setIngestHint(`资料已入库（文档ID: ${data.documentId}，分块: ${data.chunkCount}），可点击“重新生成画像”。`)
     } catch (requestError) {
       setError(requestError.message)
-      setResult(null)
     } finally {
-      setLoading(false)
+      setIngesting(false)
     }
   }
 
-  async function handleSubmit(event) {
+  async function requestGenerateProfile() {
+    setGenerating(true)
+    setError('')
+
+    try {
+      const response = await fetch('/profile/generate', {
+        method: 'POST'
+      })
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.detail || '生成画像失败')
+      }
+
+      setResult(normalizeProfilePayload(data))
+      setIngestHint('')
+    } catch (requestError) {
+      setError(requestError.message)
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  async function handleIngest(event) {
     event.preventDefault()
     const sourceContent = inputMode === 'conversation' ? conversationText : content
-    await requestProfile(sourceContent)
+    await requestIngest(sourceContent)
   }
 
   async function handleRegenerate() {
-    const sourceContent = lastSubmittedContent || (inputMode === 'conversation' ? conversationText : content)
-    await requestProfile(sourceContent)
+    await requestGenerateProfile()
   }
 
   return (
@@ -423,12 +539,14 @@ export default function App() {
         selectedFileName={selectedFileName}
         conversationText={conversationText}
         setConversationText={setConversationText}
-        loading={loading}
+        ingesting={ingesting}
+        generating={generating}
         error={error}
         onFileChange={handleFileChange}
-        onSubmit={handleSubmit}
+        onIngest={handleIngest}
         onRegenerate={handleRegenerate}
-        canRegenerate={Boolean(lastSubmittedContent || content.trim() || conversationText.trim())}
+        canRegenerate={!generating && !ingesting}
+        ingestHint={ingestHint}
       />
 
       <CurrentProfilePanel result={result} />
