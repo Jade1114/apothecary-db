@@ -199,17 +199,11 @@ function normalizeProfilePayload(payload) {
 }
 
 function InputPanel({
-  inputMode,
-  setInputMode,
   content,
   setContent,
-  selectedFileName,
-  conversationText,
-  setConversationText,
   ingesting,
   generating,
   error,
-  onFileChange,
   onIngest,
   onRegenerate,
   canRegenerate,
@@ -219,68 +213,19 @@ function InputPanel({
     <section className="panel input-panel">
       <div className="panel-head">
         <h2>输入与操作区</h2>
-        <p>先把资料入库，再基于已入库资料生成当前画像。</p>
+        <p>当前阶段先支持直接输入资料内容，附件上传能力将在后续开放。</p>
       </div>
 
       <form onSubmit={onIngest} className="form">
-        <div className="mode-switch">
-          <button
-            type="button"
-            className={`mode-button ${inputMode === 'text' ? 'mode-button-active' : ''}`}
-            onClick={() => setInputMode('text')}
-          >
-            文本 / 文档
-          </button>
-          <button
-            type="button"
-            className={`mode-button ${inputMode === 'conversation' ? 'mode-button-active' : ''}`}
-            onClick={() => setInputMode('conversation')}
-          >
-            对话
-          </button>
-        </div>
-
-        {inputMode === 'text' ? (
-          <>
-            <label htmlFor="source-file" className="label">
-              导入文档（txt / md）
-            </label>
-            <input
-              id="source-file"
-              type="file"
-              accept=".txt,.md,text/plain,text/markdown"
-              onChange={onFileChange}
-            />
-            {selectedFileName ? (
-              <p className="file-hint">当前已导入：{selectedFileName}</p>
-            ) : (
-              <p className="file-hint">还没有导入文档，也可以直接在下面粘贴内容</p>
-            )}
-
-            <label htmlFor="content" className="label">
-              输入资料内容
-            </label>
-            <textarea
-              id="content"
-              value={content}
-              onChange={(event) => setContent(event.target.value)}
-              placeholder="输入一段你的资料、观点、自述或聊天片段..."
-            />
-          </>
-        ) : (
-          <>
-            <label htmlFor="conversation" className="label">
-              输入对话内容
-            </label>
-            <textarea
-              id="conversation"
-              value={conversationText}
-              onChange={(event) => setConversationText(event.target.value)}
-              placeholder={'示例：\n用户：我最近在学 Java 并发。\n助手：你更想从线程池还是锁开始？'}
-            />
-            <p className="file-hint">当前先用纯文本方式录入对话，后续再扩展更正式的聊天导入格式。</p>
-          </>
-        )}
+        <label htmlFor="content" className="label">
+          输入资料内容
+        </label>
+        <textarea
+          id="content"
+          value={content}
+          onChange={(event) => setContent(event.target.value)}
+          placeholder="输入一段你的资料、观点、自述或聊天片段..."
+        />
 
         <div className="action-row">
           <button type="submit" disabled={ingesting || generating}>
@@ -408,10 +353,7 @@ function CurrentProfilePanel({ result }) {
 }
 
 export default function App() {
-  const [inputMode, setInputMode] = useState('text')
   const [content, setContent] = useState('')
-  const [selectedFileName, setSelectedFileName] = useState('')
-  const [conversationText, setConversationText] = useState('')
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
   const [ingesting, setIngesting] = useState(false)
@@ -437,22 +379,6 @@ export default function App() {
     loadCurrentProfile()
   }, [])
 
-  async function handleFileChange(event) {
-    const file = event.target.files?.[0]
-    if (!file) {
-      return
-    }
-
-    try {
-      const text = await file.text()
-      setContent(text)
-      setSelectedFileName(file.name)
-      setError('')
-    } catch {
-      setError('读取文件失败，请重新选择 txt 或 md 文档')
-    }
-  }
-
   async function requestIngest(sourceText) {
     const trimmed = sourceText.trim()
     if (!trimmed) {
@@ -472,8 +398,8 @@ export default function App() {
         },
         body: JSON.stringify({
           content: trimmed,
-          sourceType: inputMode === 'conversation' ? 'conversation' : 'text',
-          sourceName: selectedFileName || null
+          sourceType: 'text',
+          sourceName: null
         })
       })
 
@@ -516,8 +442,7 @@ export default function App() {
 
   async function handleIngest(event) {
     event.preventDefault()
-    const sourceContent = inputMode === 'conversation' ? conversationText : content
-    await requestIngest(sourceContent)
+    await requestIngest(content)
   }
 
   async function handleRegenerate() {
@@ -532,17 +457,11 @@ export default function App() {
       </header>
 
       <InputPanel
-        inputMode={inputMode}
-        setInputMode={setInputMode}
         content={content}
         setContent={setContent}
-        selectedFileName={selectedFileName}
-        conversationText={conversationText}
-        setConversationText={setConversationText}
         ingesting={ingesting}
         generating={generating}
         error={error}
-        onFileChange={handleFileChange}
         onIngest={handleIngest}
         onRegenerate={handleRegenerate}
         canRegenerate={!generating && !ingesting}
