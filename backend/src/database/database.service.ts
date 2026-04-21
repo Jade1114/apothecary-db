@@ -5,7 +5,7 @@ import { join } from 'node:path';
 @Injectable()
 export class DatabaseService implements OnModuleInit {
   private readonly databasePath =
-    process.env.DATABASE_PATH ?? join(process.cwd(), '..', 'backend-legacy', 'app.db');
+    process.env.DATABASE_PATH ?? join(process.cwd(), '..', 'data', 'app.db');
 
   private readonly database = new DatabaseSync(this.databasePath);
 
