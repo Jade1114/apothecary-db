@@ -1,7 +1,3 @@
-# alma
-.alma-snapshots
-.alma
-
 # compiled output
 /dist
 /node_modules
