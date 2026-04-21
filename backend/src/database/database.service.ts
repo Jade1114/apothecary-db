@@ -1,13 +1,14 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { DatabaseSync } from 'node:sqlite';
-import { join } from 'node:path';
+import { ConfigService } from '../config/config.service';
 
 @Injectable()
 export class DatabaseService implements OnModuleInit {
-  private readonly databasePath =
-    process.env.DATABASE_PATH ?? join(process.cwd(), '..', 'data', 'app.db');
+  private readonly database: DatabaseSync;
 
-  private readonly database = new DatabaseSync(this.databasePath);
+  constructor(private readonly configService: ConfigService) {
+    this.database = new DatabaseSync(this.configService.databasePath);
+  }
 
   onModuleInit(): void {
     this.database.exec(`

@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AppController } from './app.controller';
-import { AppService } from './app.service';
+import { ConfigModule } from './config/config.module';
 import { DatabaseModule } from './database/database.module';
 import { DocumentsModule } from './documents/documents.module';
 import { IngestModule } from './ingest/ingest.module';
@@ -15,9 +15,9 @@ describe('AppController ingest', () => {
     process.env.DATABASE_PATH = ':memory:';
 
     const app: TestingModule = await Test.createTestingModule({
-      imports: [DatabaseModule, DocumentsModule, IngestModule, ProfilesModule],
+      imports: [ConfigModule, DatabaseModule, DocumentsModule, IngestModule, ProfilesModule],
       controllers: [AppController],
-      providers: [AppService, IngestService],
+      providers: [IngestService],
     }).compile();
 
     app.get(DatabaseService).onModuleInit();

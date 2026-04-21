@@ -1,19 +1,10 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
-import { AppService } from './app.service';
+import { Body, Controller, Post } from '@nestjs/common';
 import { IngestService } from './ingest/ingest.service';
 import type { IngestRequest, IngestResponse } from './ingest/ingest.service';
 
 @Controller()
 export class AppController {
-  constructor(
-    private readonly appService: AppService,
-    private readonly ingestService: IngestService,
-  ) {}
-
-  @Get('/health')
-  getHealth(): { status: string } {
-    return this.appService.getHealth();
-  }
+  constructor(private readonly ingestService: IngestService) {}
 
   @Post('/ingest')
   ingest(@Body() body: IngestRequest): IngestResponse {
