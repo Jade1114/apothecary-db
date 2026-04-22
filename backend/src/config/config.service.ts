@@ -31,16 +31,8 @@ export class ConfigService {
         return process.env.EMBEDDING_PROVIDER ?? 'openai-compatible';
     }
 
-    get qdrantUrl(): string {
-        return process.env.QDRANT_URL ?? 'http://localhost:6333';
-    }
-
-    get qdrantCollection(): string {
-        return process.env.QDRANT_COLLECTION ?? 'profile_chunks';
-    }
-
-    get qdrantVectorSize(): number {
-        return Number(process.env.QDRANT_VECTOR_SIZE ?? 1536);
+    get vectorDimension(): number {
+        return Number(process.env.VECTOR_DIMENSION ?? 1536);
     }
 
     get llmApiKey(): string | null {

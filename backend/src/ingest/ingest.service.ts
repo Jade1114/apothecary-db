@@ -1,8 +1,8 @@
-import { randomUUID } from 'node:crypto';
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Inject, BadRequestException, Injectable } from '@nestjs/common';
 import { DocumentsService } from '../documents/documents.service';
 import { EmbeddingService } from '../embedding/embedding.service';
-import { VectorService } from '../vector/vector.service';
+import { VECTOR_STORE } from '../vector/vector-store';
+import type { VectorStore } from '../vector/vector-store';
 import type { VectorPoint } from '../vector/types/vector.types';
 import { IngestDto } from './dto/ingest.dto';
 import type { IngestResponse } from './types/ingest.types';
@@ -12,7 +12,7 @@ export class IngestService {
     constructor(
         private readonly documentsService: DocumentsService,
         private readonly embeddingService: EmbeddingService,
-        private readonly vectorService: VectorService,
+        @Inject(VECTOR_STORE) private readonly vectorStore: VectorStore,
     ) {}
 
     async ingest(request: IngestDto): Promise<IngestResponse> {
@@ -22,18 +22,18 @@ export class IngestService {
         }
 
         const chunks = this.splitIntoChunks(cleanedContent);
-        const created = this.documentsService.createDocument(cleanedContent);
         const sourceType = request.sourceType ?? 'text';
         const sourceName = request.sourceName ?? null;
+        const created = this.documentsService.createDocument(cleanedContent, sourceType, sourceName);
 
-        const vectors = await Promise.all(
-            chunks.map((chunk) => this.embeddingService.embedText(chunk)),
-        );
+        const vectors = await Promise.all(chunks.map((chunk) => this.embeddingService.embedText(chunk)));
+        const chunkRecords = this.documentsService.createChunks(created.documentId, chunks);
 
         const points: VectorPoint[] = chunks.map((chunk, index) => ({
-            id: randomUUID(),
+            id: String(chunkRecords[index].id),
             vector: vectors[index],
             payload: {
+                chunkId: chunkRecords[index].id,
                 documentId: created.documentId,
                 sourceType,
                 sourceName,
@@ -42,7 +42,15 @@ export class IngestService {
             },
         }));
 
-        await this.vectorService.upsertPoints(points);
+        await this.vectorStore.upsertPoints(points);
+        this.documentsService.createChunkVectorRecords(
+            points.map((point, index) => ({
+                chunkId: chunkRecords[index].id,
+                vectorId: point.id,
+                provider: 'sqlite-vec',
+                dimension: point.vector.length,
+            })),
+        );
 
         return {
             success: true,

@@ -4,6 +4,7 @@ import {
     NotFoundException,
 } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import type { ChunkRecord, ChunkVectorRecord } from './types/chunk.types';
 import type {
     CreateDocumentResult,
     DocumentRecord,
@@ -37,7 +38,11 @@ export class DocumentsService {
         return row;
     }
 
-    createDocument(content: string): CreateDocumentResult {
+    createDocument(
+        content: string,
+        sourceType?: string,
+        sourceName?: string | null,
+    ): CreateDocumentResult {
         const trimmedContent = content.trim();
         if (!trimmedContent) {
             throw new BadRequestException('content 不能为空');
@@ -45,11 +50,48 @@ export class DocumentsService {
 
         const database = this.databaseService.getDatabase();
         const result = database
-            .prepare('INSERT INTO documents (content) VALUES (?)')
-            .run(trimmedContent);
+            .prepare(
+                'INSERT INTO documents (content, source_type, source_name) VALUES (?, ?, ?)',
+            )
+            .run(trimmedContent, sourceType ?? null, sourceName ?? null);
 
         return {
             documentId: Number(result.lastInsertRowid),
         };
+    }
+
+    createChunks(documentId: number, chunks: string[]): ChunkRecord[] {
+        const database = this.databaseService.getDatabase();
+        const statement = database.prepare(
+            'INSERT INTO chunks (document_id, chunk_index, content) VALUES (?, ?, ?)',
+        );
+
+        return chunks.map((content, index) => {
+            const result = statement.run(documentId, index, content);
+            return {
+                id: Number(result.lastInsertRowid),
+                documentId,
+                chunkIndex: index,
+                content,
+                createdAt: '',
+            };
+        });
+    }
+
+    createChunkVectorRecords(
+        records: Array<Omit<ChunkVectorRecord, 'createdAt'>>,
+    ): ChunkVectorRecord[] {
+        const database = this.databaseService.getDatabase();
+        const statement = database.prepare(
+            'INSERT INTO chunk_vectors (chunk_id, vector_id, provider, dimension) VALUES (?, ?, ?, ?)',
+        );
+
+        return records.map((record) => {
+            statement.run(record.chunkId, record.vectorId, record.provider, record.dimension);
+            return {
+                ...record,
+                createdAt: '',
+            };
+        });
     }
 }
