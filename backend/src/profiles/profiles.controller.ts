@@ -1,21 +1,35 @@
-import { Controller, Get } from '@nestjs/common';
-import { ProfileRecord, ProfilesService } from './profiles.service';
+import { Controller, Get, Param, ParseIntPipe } from '@nestjs/common';
+import { ProfilesService } from './profiles.service';
+import type {
+    CurrentProfileResponse,
+    ProfileDetailResponse,
+    ProfilesListResponse,
+} from './types/profile.types';
 
 @Controller('profiles')
 export class ProfilesController {
-  constructor(private readonly profilesService: ProfilesService) {}
+    constructor(private readonly profilesService: ProfilesService) {}
 
-  @Get()
-  getProfiles(): { profiles: ProfileRecord[] } {
-    return {
-      profiles: this.profilesService.listProfiles(),
-    };
-  }
+    @Get()
+    getProfiles(): ProfilesListResponse {
+        return {
+            profiles: this.profilesService.listProfiles(),
+        };
+    }
 
-  @Get('current')
-  getCurrentProfile(): { profile: ProfileRecord | null } {
-    return {
-      profile: this.profilesService.getLatestProfile(),
-    };
-  }
+    @Get(':id')
+    getProfileById(
+        @Param('id', ParseIntPipe) id: number,
+    ): ProfileDetailResponse {
+        return {
+            profile: this.profilesService.getProfileById(id),
+        };
+    }
+
+    @Get('current')
+    getCurrentProfile(): CurrentProfileResponse {
+        return {
+            profile: this.profilesService.getLatestProfile(),
+        };
+    }
 }
