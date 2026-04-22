@@ -1,0 +1,151 @@
+.app-shell {
+    min-height: 100vh;
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 40px 24px 64px;
+    box-sizing: border-box;
+}
+
+.page-header {
+    max-width: 1100px;
+    margin: 0 auto 24px;
+}
+
+.eyebrow {
+    margin: 0 0 8px;
+    font-size: 14px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #94a3b8;
+}
+
+.page-header h1 {
+    margin: 0;
+    font-size: 40px;
+    line-height: 1.1;
+}
+
+.subtitle {
+    margin: 12px 0 0;
+    max-width: 720px;
+    color: #cbd5e1;
+}
+
+.error-banner {
+    max-width: 1100px;
+    margin: 0 auto 24px;
+    padding: 14px 16px;
+    border: 1px solid #ef4444;
+    background: rgba(127, 29, 29, 0.5);
+    color: #fecaca;
+    border-radius: 12px;
+}
+
+.panel-grid {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px;
+}
+
+.panel {
+    border: 1px solid #1e293b;
+    background: #111827;
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+}
+
+.panel-header h2 {
+    margin: 0 0 8px;
+    font-size: 24px;
+}
+
+.panel-header p {
+    margin: 0 0 18px;
+    color: #94a3b8;
+}
+
+.panel-form {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.panel-form label {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    color: #cbd5e1;
+}
+
+.panel-form input,
+.panel-form textarea {
+    width: 100%;
+    border: 1px solid #334155;
+    background: #0f172a;
+    color: #e2e8f0;
+    border-radius: 10px;
+    padding: 12px 14px;
+    box-sizing: border-box;
+    font: inherit;
+}
+
+.panel-form textarea {
+    resize: vertical;
+    min-height: 120px;
+}
+
+.panel-form button {
+    border: none;
+    border-radius: 10px;
+    background: #7c3aed;
+    color: white;
+    padding: 12px 16px;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.panel-form button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.result-card {
+    margin-top: 18px;
+    border-top: 1px solid #1e293b;
+    padding-top: 18px;
+}
+
+.result-card h3 {
+    margin: 0 0 10px;
+    font-size: 18px;
+}
+
+.result-card p {
+    margin: 0;
+    color: #94a3b8;
+}
+
+.result-card pre {
+    margin: 0;
+    padding: 14px;
+    border-radius: 12px;
+    background: #020617;
+    color: #cbd5e1;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+@media (max-width: 900px) {
+    .panel-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .page-header h1 {
+        font-size: 32px;
+    }
+}

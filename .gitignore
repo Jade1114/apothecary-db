@@ -1,4 +1,10 @@
-.alma-snapshots
-node_modules/
-dist/
-backend/.env
+.alma-snapshots/
+.vscode/
+
+# Runtime data
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# macOS
+.DS_Store
