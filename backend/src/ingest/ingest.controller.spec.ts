@@ -10,12 +10,13 @@ import { IngestModule } from './ingest.module';
 import { IngestService } from './ingest.service';
 import { ProfilesModule } from '../profiles/profiles.module';
 import { VectorModule } from '../vector/vector.module';
-import { VectorService } from '../vector/vector.service';
+import { VECTOR_STORE } from '../vector/vector-store';
+import type { VectorStore } from '../vector/vector-store';
 
 describe('IngestController', () => {
     let ingestController: IngestController;
     let embeddingService: EmbeddingService;
-    let vectorService: VectorService;
+    let vectorStore: VectorStore;
 
     beforeEach(async () => {
         process.env.DATABASE_PATH = ':memory:';
@@ -37,10 +38,10 @@ describe('IngestController', () => {
         app.get(DatabaseService).onModuleInit();
         ingestController = app.get<IngestController>(IngestController);
         embeddingService = app.get(EmbeddingService);
-        vectorService = app.get(VectorService);
+        vectorStore = app.get<VectorStore>(VECTOR_STORE);
 
         jest.spyOn(embeddingService, 'embedText').mockResolvedValue([0.1, 0.2, 0.3]);
-        jest.spyOn(vectorService, 'upsertPoints').mockResolvedValue();
+        jest.spyOn(vectorStore, 'upsertPoints').mockResolvedValue();
     });
 
     it('should ingest content and return chunk count', async () => {

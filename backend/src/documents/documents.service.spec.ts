@@ -20,10 +20,28 @@ describe('DocumentsService', () => {
     });
 
     it('should create and read a document by id', () => {
-        const created = documentsService.createDocument('测试资料');
+        const created = documentsService.createDocument('测试资料', 'note', 'spec');
         const document = documentsService.getDocumentById(created.documentId);
 
         expect(document.id).toBe(created.documentId);
         expect(document.content).toBe('测试资料');
+    });
+
+    it('should create chunks and chunk vector mappings', () => {
+        const created = documentsService.createDocument('第一段\n\n第二段', 'note', 'chunks');
+        const chunks = documentsService.createChunks(created.documentId, ['第一段', '第二段']);
+        const vectorRecords = documentsService.createChunkVectorRecords([
+            {
+                chunkId: chunks[0].id,
+                vectorId: 'vec-1',
+                provider: 'sqlite-vec',
+                dimension: 3,
+            },
+        ]);
+
+        expect(chunks).toHaveLength(2);
+        expect(chunks[0].chunkIndex).toBe(0);
+        expect(vectorRecords[0].vectorId).toBe('vec-1');
+        expect(vectorRecords[0].dimension).toBe(3);
     });
 });
