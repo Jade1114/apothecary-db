@@ -14,6 +14,7 @@ export class DatabaseService implements OnModuleInit {
     }
 
     onModuleInit(): void {
+        sqliteVec.load(this.database);
         this.database.exec(`
       PRAGMA journal_mode = WAL;
 
@@ -33,6 +34,8 @@ export class DatabaseService implements OnModuleInit {
         content TEXT NOT NULL,
         source_type TEXT,
         source_name TEXT,
+        source_path TEXT,
+        normalized_path TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (file_id) REFERENCES files (id)
       );
@@ -65,9 +68,24 @@ export class DatabaseService implements OnModuleInit {
         FOREIGN KEY (document_id) REFERENCES documents (id)
       );
     `);
+
+        this.ensureColumn('documents', 'source_path', 'TEXT');
+        this.ensureColumn('documents', 'normalized_path', 'TEXT');
     }
 
     getDatabase(): DatabaseSync {
         return this.database;
+    }
+
+    private ensureColumn(tableName: string, columnName: string, columnDefinition: string): void {
+        const columns = this.database
+            .prepare(`PRAGMA table_info(${tableName})`)
+            .all() as Array<{ name: string }>;
+        const exists = columns.some((column) => column.name === columnName);
+        if (!exists) {
+            this.database.exec(
+                `ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`,
+            );
+        }
     }
 }

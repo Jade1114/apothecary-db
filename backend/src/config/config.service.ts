@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 @Injectable()
@@ -13,6 +14,21 @@ export class ConfigService {
 
     get databasePath(): string {
         return process.env.DATABASE_PATH ?? join(process.cwd(), '..', 'data', 'app.db');
+    }
+
+    get vaultPath(): string {
+        const configuredPath = process.env.APOTHECARY_VAULT_PATH;
+        if (!configuredPath) {
+            return join(homedir(), 'Apothecary-Vault');
+        }
+
+        return configuredPath.startsWith('~/')
+            ? join(homedir(), configuredPath.slice(2))
+            : configuredPath;
+    }
+
+    get normalizedDocumentsPath(): string {
+        return join(this.vaultPath, '.apothecary', 'normalized');
     }
 
     get embeddingApiKey(): string | null {
