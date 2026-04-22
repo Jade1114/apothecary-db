@@ -1,121 +1,176 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useMemo, useState } from 'react';
+import type { FormEvent } from 'react';
+import './App.css';
 
-function App() {
-  const [count, setCount] = useState(0)
+type IngestResponse = {
+    success: true;
+    documentId: number;
+    chunkCount: number;
+    sourceType: string;
+    sourceName: string | null;
+    indexing: {
+        embeddingReady: true;
+        vectorReady: true;
+        indexedPoints: number;
+    };
+};
 
-  return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+type RagEvidenceItem = {
+    id: string;
+    documentId: number | null;
+    chunkIndex: number | null;
+    content: string;
+    sourceType: string | null;
+    sourceName: string | null;
+};
 
-      <div className="ticks"></div>
+type RagQueryResponse = {
+    query: string;
+    answer: string;
+    evidence: RagEvidenceItem[];
+    retrieval: {
+        limit: number;
+        matchedCount: number;
+    };
+    generation: {
+        answered: boolean;
+    };
+};
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+async function postJson<T>(url: string, body: unknown): Promise<T> {
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+    });
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `Request failed: ${response.status}`);
+    }
+
+    return (await response.json()) as T;
 }
 
-export default App
+function App() {
+    const [ingestContent, setIngestContent] = useState('我正在把这个项目重构成 TypeScript 全栈桌面应用。\n\n后端使用 NestJS，当前目标是先把 RAG 主链路跑通。');
+    const [query, setQuery] = useState('这个项目当前后端做到哪里了');
+    const [sourceName, setSourceName] = useState('frontend-manual');
+    const [ingestResult, setIngestResult] = useState<IngestResponse | null>(null);
+    const [ragResult, setRagResult] = useState<RagQueryResponse | null>(null);
+    const [ingestLoading, setIngestLoading] = useState(false);
+    const [queryLoading, setQueryLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const canIngest = useMemo(() => ingestContent.trim().length > 0, [ingestContent]);
+    const canQuery = useMemo(() => query.trim().length > 0, [query]);
+
+    async function handleIngest(event: FormEvent) {
+        event.preventDefault();
+        if (!canIngest) {
+            return;
+        }
+
+        try {
+            setError(null);
+            setIngestLoading(true);
+            const result = await postJson<IngestResponse>('/ingest', {
+                content: ingestContent,
+                sourceType: 'note',
+                sourceName,
+            });
+            setIngestResult(result);
+        } catch (caughtError) {
+            setError(caughtError instanceof Error ? caughtError.message : '资料入库失败');
+        } finally {
+            setIngestLoading(false);
+        }
+    }
+
+    async function handleQuery(event: FormEvent) {
+        event.preventDefault();
+        if (!canQuery) {
+            return;
+        }
+
+        try {
+            setError(null);
+            setQueryLoading(true);
+            const result = await postJson<RagQueryResponse>('/rag/query', {
+                query,
+                limit: 5,
+            });
+            setRagResult(result);
+        } catch (caughtError) {
+            setError(caughtError instanceof Error ? caughtError.message : 'RAG 查询失败');
+        } finally {
+            setQueryLoading(false);
+        }
+    }
+
+    return (
+        <main className="app-shell">
+            <header className="page-header">
+                <div>
+                    <p className="eyebrow">Apothecary DB</p>
+                    <h1>RAG 工作台</h1>
+                    <p className="subtitle">先验证后端主链路，再慢慢把桌面壳和完整交互补上。</p>
+                </div>
+            </header>
+
+            {error ? <div className="error-banner">{error}</div> : null}
+
+            <section className="panel-grid">
+                <section className="panel">
+                    <div className="panel-header">
+                        <h2>资料入库</h2>
+                        <p>把文本送进后端，写入 SQLite 并建立向量索引。</p>
+                    </div>
+                    <form className="panel-form" onSubmit={handleIngest}>
+                        <label>
+                            <span>来源名称</span>
+                            <input value={sourceName} onChange={(event) => setSourceName(event.target.value)} />
+                        </label>
+                        <label>
+                            <span>资料内容</span>
+                            <textarea value={ingestContent} onChange={(event) => setIngestContent(event.target.value)} rows={10} />
+                        </label>
+                        <button type="submit" disabled={!canIngest || ingestLoading}>
+                            {ingestLoading ? '入库中…' : '提交到 /ingest'}
+                        </button>
+                    </form>
+
+                    <div className="result-card">
+                        <h3>入库结果</h3>
+                        {ingestResult ? <pre>{JSON.stringify(ingestResult, null, 4)}</pre> : <p>还没有提交资料。</p>}
+                    </div>
+                </section>
+
+                <section className="panel">
+                    <div className="panel-header">
+                        <h2>RAG 查询</h2>
+                        <p>基于当前 Qdrant 中的向量数据做 evidence 检索并生成回答。</p>
+                    </div>
+                    <form className="panel-form" onSubmit={handleQuery}>
+                        <label>
+                            <span>问题</span>
+                            <textarea value={query} onChange={(event) => setQuery(event.target.value)} rows={5} />
+                        </label>
+                        <button type="submit" disabled={!canQuery || queryLoading}>
+                            {queryLoading ? '查询中…' : '提交到 /rag/query'}
+                        </button>
+                    </form>
+
+                    <div className="result-card">
+                        <h3>查询结果</h3>
+                        {ragResult ? <pre>{JSON.stringify(ragResult, null, 4)}</pre> : <p>还没有发起查询。</p>}
+                    </div>
+                </section>
+            </section>
+        </main>
+    );
+}
+
+export default App;

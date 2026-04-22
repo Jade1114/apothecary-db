@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import OpenAI from 'openai';
 import { ConfigService } from '../config/config.service';
-import { buildRagAnswerPrompt } from './prompts';
+import { buildRagAnswerPrompt, buildRagSystemPrompt } from './prompts';
 import type { GenerateAnswerInput, LlmProviderInfo } from './types/llm.types';
 
 @Injectable()
@@ -32,7 +32,7 @@ export class LlmService {
             messages: [
                 {
                     role: 'system',
-                    content: '你是一个严格基于 evidence 回答问题的助手，不要编造超出 evidence 的内容。',
+                    content: buildRagSystemPrompt(),
                 },
                 {
                     role: 'user',
