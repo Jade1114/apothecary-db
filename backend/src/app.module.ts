@@ -6,6 +6,7 @@ import { EmbeddingModule } from './embedding/embedding.module';
 import { HealthModule } from './health/health.module';
 import { IngestModule } from './ingest/ingest.module';
 import { LlmModule } from './llm/llm.module';
+import { ParserModule } from './parser/parser.module';
 import { ProfilesModule } from './profiles/profiles.module';
 import { RagModule } from './rag/rag.module';
 import { VectorModule } from './vector/vector.module';
@@ -17,6 +18,7 @@ import { VectorModule } from './vector/vector.module';
         DatabaseModule,
         DocumentsModule,
         ProfilesModule,
+        ParserModule,
         EmbeddingModule,
         VectorModule,
         LlmModule,

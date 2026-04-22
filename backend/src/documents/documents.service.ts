@@ -18,7 +18,7 @@ export class DocumentsService {
         const database = this.databaseService.getDatabase();
         return database
             .prepare(
-                'SELECT id, content, created_at FROM documents ORDER BY id DESC',
+                'SELECT id, content, source_path, normalized_path, created_at FROM documents ORDER BY id DESC',
             )
             .all() as DocumentRecord[];
     }
@@ -27,7 +27,7 @@ export class DocumentsService {
         const database = this.databaseService.getDatabase();
         const row = database
             .prepare(
-                'SELECT id, content, created_at FROM documents WHERE id = ?',
+                'SELECT id, content, source_path, normalized_path, created_at FROM documents WHERE id = ?',
             )
             .get(id) as DocumentRecord | undefined;
 
@@ -42,6 +42,8 @@ export class DocumentsService {
         content: string,
         sourceType?: string,
         sourceName?: string | null,
+        sourcePath?: string | null,
+        normalizedPath?: string | null,
     ): CreateDocumentResult {
         const trimmedContent = content.trim();
         if (!trimmedContent) {
@@ -51,9 +53,15 @@ export class DocumentsService {
         const database = this.databaseService.getDatabase();
         const result = database
             .prepare(
-                'INSERT INTO documents (content, source_type, source_name) VALUES (?, ?, ?)',
+                'INSERT INTO documents (content, source_type, source_name, source_path, normalized_path) VALUES (?, ?, ?, ?, ?)',
             )
-            .run(trimmedContent, sourceType ?? null, sourceName ?? null);
+            .run(
+                trimmedContent,
+                sourceType ?? null,
+                sourceName ?? null,
+                sourcePath ?? null,
+                normalizedPath ?? null,
+            );
 
         return {
             documentId: Number(result.lastInsertRowid),
