@@ -69,6 +69,10 @@ export class DatabaseService implements OnModuleInit {
       );
     `);
 
+        this.ensureColumn('files', 'name', 'TEXT');
+        this.ensureColumn('files', 'extension', 'TEXT');
+        this.ensureColumn('files', 'size', 'INTEGER');
+        this.ensureColumn('files', 'last_seen_at', 'DATETIME DEFAULT CURRENT_TIMESTAMP');
         this.ensureColumn('documents', 'source_path', 'TEXT');
         this.ensureColumn('documents', 'normalized_path', 'TEXT');
     }

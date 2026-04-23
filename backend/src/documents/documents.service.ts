@@ -1,14 +1,7 @@
-import {
-    BadRequestException,
-    Injectable,
-    NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import type { ChunkRecord, ChunkVectorRecord } from './types/chunk.types';
-import type {
-    CreateDocumentResult,
-    DocumentRecord,
-} from './types/document.types';
+import type { CreateDocumentResult, DocumentRecord } from './types/document.types';
 
 @Injectable()
 export class DocumentsService {
@@ -18,7 +11,7 @@ export class DocumentsService {
         const database = this.databaseService.getDatabase();
         return database
             .prepare(
-                'SELECT id, content, source_path, normalized_path, created_at FROM documents ORDER BY id DESC',
+                'SELECT id, file_id, content, source_path, normalized_path, created_at FROM documents ORDER BY id DESC',
             )
             .all() as DocumentRecord[];
     }
@@ -27,7 +20,7 @@ export class DocumentsService {
         const database = this.databaseService.getDatabase();
         const row = database
             .prepare(
-                'SELECT id, content, source_path, normalized_path, created_at FROM documents WHERE id = ?',
+                'SELECT id, file_id, content, source_path, normalized_path, created_at FROM documents WHERE id = ?',
             )
             .get(id) as DocumentRecord | undefined;
 
@@ -38,12 +31,24 @@ export class DocumentsService {
         return row;
     }
 
+    findDocumentByFileId(fileId: number): DocumentRecord | null {
+        const database = this.databaseService.getDatabase();
+        const row = database
+            .prepare(
+                'SELECT id, file_id, content, source_path, normalized_path, created_at FROM documents WHERE file_id = ? ORDER BY id DESC LIMIT 1',
+            )
+            .get(fileId) as DocumentRecord | undefined;
+
+        return row ?? null;
+    }
+
     createDocument(
         content: string,
         sourceType?: string,
         sourceName?: string | null,
         sourcePath?: string | null,
         normalizedPath?: string | null,
+        fileId?: number | null,
     ): CreateDocumentResult {
         const trimmedContent = content.trim();
         if (!trimmedContent) {
@@ -53,9 +58,10 @@ export class DocumentsService {
         const database = this.databaseService.getDatabase();
         const result = database
             .prepare(
-                'INSERT INTO documents (content, source_type, source_name, source_path, normalized_path) VALUES (?, ?, ?, ?, ?)',
+                'INSERT INTO documents (file_id, content, source_type, source_name, source_path, normalized_path) VALUES (?, ?, ?, ?, ?, ?)',
             )
             .run(
+                fileId ?? null,
                 trimmedContent,
                 sourceType ?? null,
                 sourceName ?? null,
@@ -66,6 +72,27 @@ export class DocumentsService {
         return {
             documentId: Number(result.lastInsertRowid),
         };
+    }
+
+    countChunks(documentId: number): number {
+        const database = this.databaseService.getDatabase();
+        const row = database
+            .prepare('SELECT COUNT(*) AS count FROM chunks WHERE document_id = ?')
+            .get(documentId) as { count: number };
+
+        return Number(row.count);
+    }
+
+    deleteDocumentCascade(documentId: number): void {
+        const database = this.databaseService.getDatabase();
+        database.prepare('DELETE FROM profiles WHERE document_id = ?').run(documentId);
+        database
+            .prepare(
+                'DELETE FROM chunk_vectors WHERE chunk_id IN (SELECT id FROM chunks WHERE document_id = ?)',
+            )
+            .run(documentId);
+        database.prepare('DELETE FROM chunks WHERE document_id = ?').run(documentId);
+        database.prepare('DELETE FROM documents WHERE id = ?').run(documentId);
     }
 
     createChunks(documentId: number, chunks: string[]): ChunkRecord[] {

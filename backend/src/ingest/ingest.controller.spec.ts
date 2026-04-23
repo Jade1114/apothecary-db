@@ -15,10 +15,10 @@ import { VECTOR_STORE } from '../vector/vector-store';
 import type { VectorStore } from '../vector/vector-store';
 import { IngestController } from './ingest.controller';
 import { IngestModule } from './ingest.module';
-import { IngestService } from './ingest.service';
 
 describe('IngestController', () => {
     let ingestController: IngestController;
+    let databaseService: DatabaseService;
     let embeddingService: EmbeddingService;
     let vectorStore: VectorStore;
     let vaultPath: string;
@@ -40,17 +40,17 @@ describe('IngestController', () => {
                 VectorModule,
                 IngestModule,
             ],
-            controllers: [IngestController],
-            providers: [IngestService],
         }).compile();
 
-        app.get(DatabaseService).onModuleInit();
+        databaseService = app.get(DatabaseService);
+        databaseService.onModuleInit();
         ingestController = app.get<IngestController>(IngestController);
         embeddingService = app.get(EmbeddingService);
         vectorStore = app.get<VectorStore>(VECTOR_STORE);
 
         jest.spyOn(embeddingService, 'embedText').mockResolvedValue([0.1, 0.2, 0.3]);
         jest.spyOn(vectorStore, 'upsertPoints').mockResolvedValue();
+        jest.spyOn(vectorStore, 'deleteByDocumentId').mockResolvedValue();
     });
 
     it('should ingest content and return chunk count', async () => {
@@ -74,7 +74,7 @@ describe('IngestController', () => {
         });
     });
 
-    it('should ingest a vault markdown file and persist normalized document', async () => {
+    it('should ingest a vault markdown file and persist normalized document with file_id', async () => {
         const filePath = join(vaultPath, 'notes.md');
         await writeFile(filePath, '# 文件标题\n\n第一段资料。\n\n第二段资料。', 'utf8');
 
@@ -91,6 +91,76 @@ describe('IngestController', () => {
         const normalizedContent = await readFile(result.normalizedPath, 'utf8');
         expect(normalizedContent).toContain('source_type: md');
         expect(normalizedContent).toContain('# 文件标题');
+
+        const database = databaseService.getDatabase();
+        const document = database
+            .prepare('SELECT id, file_id FROM documents WHERE id = ?')
+            .get(result.documentId) as { id: number; file_id: number | null };
+        const file = database
+            .prepare('SELECT id, path, name, extension, size, status FROM files WHERE id = ?')
+            .get(document.file_id) as {
+                id: number;
+                path: string;
+                name: string;
+                extension: string;
+                size: number;
+                status: string;
+            };
+
+        expect(document.file_id).toBeTruthy();
+        expect(file.path).toBe(filePath);
+        expect(file.name).toBe('notes.md');
+        expect(file.extension).toBe('md');
+        expect(file.size).toBeGreaterThan(0);
+        expect(file.status).toBe('active');
+    });
+
+    it('should detect unchanged files and avoid duplicate documents on repeated scan', async () => {
+        const filePath = join(vaultPath, 'alpha.md');
+        await writeFile(filePath, '# Alpha\n\n第一段', 'utf8');
+
+        await ingestController.scanVault();
+        const embedCallsAfterFirstScan = (embeddingService.embedText as jest.Mock).mock.calls.length;
+        const upsertCallsAfterFirstScan = (vectorStore.upsertPoints as jest.Mock).mock.calls.length;
+
+        await ingestController.scanVault();
+
+        const database = databaseService.getDatabase();
+        const fileCount = database.prepare('SELECT COUNT(*) AS count FROM files').get() as { count: number };
+        const documentCount = database
+            .prepare('SELECT COUNT(*) AS count FROM documents WHERE source_path = ?')
+            .get(filePath) as { count: number };
+
+        expect(fileCount.count).toBe(1);
+        expect(documentCount.count).toBe(1);
+        expect((embeddingService.embedText as jest.Mock).mock.calls.length).toBe(embedCallsAfterFirstScan);
+        expect((vectorStore.upsertPoints as jest.Mock).mock.calls.length).toBe(upsertCallsAfterFirstScan);
+    });
+
+    it('should detect changed files and replace document content', async () => {
+        const filePath = join(vaultPath, 'beta.txt');
+        await writeFile(filePath, '旧内容', 'utf8');
+        await ingestController.scanVault();
+
+        await writeFile(filePath, '新内容\n\n第二段', 'utf8');
+        await ingestController.scanVault();
+
+        const database = databaseService.getDatabase();
+        const file = database
+            .prepare('SELECT hash, status FROM files WHERE path = ?')
+            .get(filePath) as { hash: string; status: string };
+        const document = database
+            .prepare('SELECT content FROM documents WHERE file_id = (SELECT id FROM files WHERE path = ?)')
+            .get(filePath) as { content: string };
+        const documentCount = database
+            .prepare('SELECT COUNT(*) AS count FROM documents WHERE file_id = (SELECT id FROM files WHERE path = ?)')
+            .get(filePath) as { count: number };
+
+        expect(file.hash).toBeTruthy();
+        expect(file.status).toBe('active');
+        expect(document.content).toContain('新内容');
+        expect(documentCount.count).toBe(1);
+        expect(vectorStore.deleteByDocumentId).toHaveBeenCalledTimes(1);
     });
 
     it('should scan vault and import only supported files', async () => {

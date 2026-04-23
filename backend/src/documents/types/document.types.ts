@@ -1,5 +1,6 @@
 export type DocumentRecord = {
     id: number;
+    file_id?: number | null;
     content: string;
     source_path?: string | null;
     normalized_path?: string | null;

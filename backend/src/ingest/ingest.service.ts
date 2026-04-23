@@ -4,6 +4,7 @@ import { Inject, BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '../config/config.service';
 import { DocumentsService } from '../documents/documents.service';
 import { EmbeddingService } from '../embedding/embedding.service';
+import { FilesService } from '../files/files.service';
 import { NormalizedDocumentService } from '../parser/normalized-document.service';
 import { ParserService } from '../parser/parser.service';
 import { VECTOR_STORE } from '../vector/vector-store';
@@ -21,6 +22,7 @@ export class IngestService {
         private readonly configService: ConfigService,
         private readonly documentsService: DocumentsService,
         private readonly embeddingService: EmbeddingService,
+        private readonly filesService: FilesService,
         private readonly parserService: ParserService,
         private readonly normalizedDocumentService: NormalizedDocumentService,
         @Inject(VECTOR_STORE) private readonly vectorStore: VectorStore,
@@ -38,26 +40,56 @@ export class IngestService {
             sourceName: request.sourceName ?? null,
             sourcePath: null,
             normalizedPath: null,
+            fileId: null,
         });
     }
 
     async ingestFile(request: IngestFileDto): Promise<FileIngestResponse> {
-        const normalizedDocument = await this.parserService.parseFile(request.filePath);
-        const normalizedPath = await this.normalizedDocumentService.writeDocument(normalizedDocument);
-        const result = await this.ingestNormalizedText({
-            content: normalizedDocument.plainText,
-            sourceType: normalizedDocument.sourceType,
-            sourceName: normalizedDocument.sourceName,
-            sourcePath: normalizedDocument.sourcePath,
-            normalizedPath,
-        });
+        const registration = await this.filesService.registerFile(request.filePath);
+        const existingDocument = this.documentsService.findDocumentByFileId(registration.file.id);
 
-        return {
-            ...result,
-            sourcePath: normalizedDocument.sourcePath,
-            normalizedPath,
-            title: normalizedDocument.title,
-        };
+        if (!registration.shouldProcess && existingDocument) {
+            return {
+                success: true,
+                documentId: existingDocument.id,
+                chunkCount: this.documentsService.countChunks(existingDocument.id),
+                sourceType: registration.file.extension || registration.file.kind,
+                sourceName: registration.file.name,
+                sourcePath: registration.file.path,
+                normalizedPath: existingDocument.normalized_path ?? '',
+                title: null,
+                indexing: {
+                    embeddingReady: true,
+                    vectorReady: true,
+                    indexedPoints: this.documentsService.countChunks(existingDocument.id),
+                },
+            };
+        }
+
+        try {
+            const normalizedDocument = await this.parserService.parseFile(request.filePath);
+            const normalizedPath = await this.normalizedDocumentService.writeDocument(normalizedDocument);
+            const result = await this.ingestNormalizedText({
+                content: normalizedDocument.plainText,
+                sourceType: normalizedDocument.sourceType,
+                sourceName: normalizedDocument.sourceName,
+                sourcePath: normalizedDocument.sourcePath,
+                normalizedPath,
+                fileId: registration.file.id,
+            });
+
+            this.filesService.markProcessed(registration.file.id);
+
+            return {
+                ...result,
+                sourcePath: normalizedDocument.sourcePath,
+                normalizedPath,
+                title: normalizedDocument.title,
+            };
+        } catch (error) {
+            this.filesService.markError(registration.file.id);
+            throw error;
+        }
     }
 
     async scanVault(): Promise<VaultScanResponse> {
@@ -82,6 +114,8 @@ export class IngestService {
             }
         }
 
+        this.filesService.markMissingFilesDeleted(files);
+
         return {
             vaultPath: this.configService.vaultPath,
             scannedCount: files.length,
@@ -97,14 +131,24 @@ export class IngestService {
         sourceName: string | null;
         sourcePath: string | null;
         normalizedPath: string | null;
+        fileId: number | null;
     }): Promise<IngestResponse> {
         const chunks = this.splitIntoChunks(input.content);
+        const existingDocument =
+            input.fileId === null ? null : this.documentsService.findDocumentByFileId(input.fileId);
+
+        if (existingDocument) {
+            await this.vectorStore.deleteByDocumentId(existingDocument.id);
+            this.documentsService.deleteDocumentCascade(existingDocument.id);
+        }
+
         const created = this.documentsService.createDocument(
             input.content,
             input.sourceType,
             input.sourceName,
             input.sourcePath,
             input.normalizedPath,
+            input.fileId,
         );
 
         const vectors = await Promise.all(chunks.map((chunk) => this.embeddingService.embedText(chunk)));
