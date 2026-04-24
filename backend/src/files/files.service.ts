@@ -4,7 +4,11 @@ import { access, readFile, stat } from 'node:fs/promises';
 import { basename, extname, isAbsolute, relative, resolve } from 'node:path';
 import { ConfigService } from '../config/config.service';
 import { DatabaseService } from '../database/database.service';
-import type { FileRecord, FileStatus, RegisterFileResult } from './types/file.types';
+import type {
+    FileRecord,
+    FileStatus,
+    RegisterFileResult,
+} from './types/file.types';
 
 @Injectable()
 export class FilesService {
@@ -18,15 +22,47 @@ export class FilesService {
         const database = this.databaseService.getDatabase();
         const existing = database
             .prepare(
-                'SELECT id, path, name, extension, kind, size, hash, status, created_at, updated_at, last_seen_at FROM files WHERE path = ?',
+                `
+                SELECT
+                    id,
+                    path,
+                    name,
+                    extension,
+                    kind,
+                    size,
+                    hash,
+                    status,
+                    created_at,
+                    updated_at,
+                    last_seen_at,
+                    deleted_at,
+                    last_normalized_path,
+                    normalized_retained_at
+                FROM files
+                WHERE path = ?
+                `,
             )
             .get(snapshot.path) as FileRecord | undefined;
 
         if (!existing) {
             const result = database
                 .prepare(
-                    `INSERT INTO files (path, name, extension, kind, size, hash, status, last_seen_at)
-                     VALUES (?, ?, ?, ?, ?, ?, 'active', CURRENT_TIMESTAMP)`,
+                    `
+                    INSERT INTO files (
+                        path,
+                        name,
+                        extension,
+                        kind,
+                        size,
+                        hash,
+                        status,
+                        last_seen_at,
+                        deleted_at,
+                        last_normalized_path,
+                        normalized_retained_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, 'active', CURRENT_TIMESTAMP, NULL, NULL, NULL)
+                    `,
                 )
                 .run(
                     snapshot.path,
@@ -44,11 +80,24 @@ export class FilesService {
             };
         }
 
-        const status: FileStatus = existing.hash === snapshot.hash ? 'active' : 'changed';
+        const shouldProcess =
+            existing.hash !== snapshot.hash ||
+            existing.status !== 'active' ||
+            existing.deleted_at !== null;
         database
             .prepare(
                 `UPDATE files
-                 SET name = ?, extension = ?, kind = ?, size = ?, hash = ?, status = ?, updated_at = CURRENT_TIMESTAMP, last_seen_at = CURRENT_TIMESTAMP
+                 SET
+                    name = ?,
+                    extension = ?,
+                    kind = ?,
+                    size = ?,
+                    hash = ?,
+                    status = 'active',
+                    deleted_at = NULL,
+                    normalized_retained_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP,
+                    last_seen_at = CURRENT_TIMESTAMP
                  WHERE id = ?`,
             )
             .run(
@@ -57,14 +106,13 @@ export class FilesService {
                 snapshot.kind,
                 snapshot.size,
                 snapshot.hash,
-                status,
                 existing.id,
             );
 
         return {
             file: this.getFileById(existing.id),
-            shouldProcess: status === 'changed',
-            reason: status === 'changed' ? 'changed' : 'unchanged',
+            shouldProcess,
+            reason: shouldProcess ? 'changed' : 'unchanged',
         };
     }
 
@@ -76,27 +124,99 @@ export class FilesService {
         this.updateStatus(fileId, 'error');
     }
 
-    markMissingFilesDeleted(seenPaths: string[]): void {
+    recordNormalizedDocument(fileId: number, normalizedPath: string): void {
+        const database = this.databaseService.getDatabase();
+        database
+            .prepare(
+                `
+                UPDATE files
+                SET
+                    last_normalized_path = ?,
+                    normalized_retained_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                `,
+            )
+            .run(normalizedPath, fileId);
+    }
+
+    markDeleted(fileId: number): void {
+        const database = this.databaseService.getDatabase();
+        database
+            .prepare(
+                `
+                UPDATE files
+                SET
+                    status = 'deleted',
+                    deleted_at = CURRENT_TIMESTAMP,
+                    normalized_retained_at = CASE
+                        WHEN last_normalized_path IS NULL THEN NULL
+                        ELSE CURRENT_TIMESTAMP
+                    END,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                `,
+            )
+            .run(fileId);
+    }
+
+    listFilesPendingDeleteReconcile(seenPaths: string[]): FileRecord[] {
         const database = this.databaseService.getDatabase();
         const records = database
             .prepare(
-                'SELECT id, path FROM files WHERE path LIKE ? AND status != ?',
+                `
+                SELECT
+                    id,
+                    path,
+                    name,
+                    extension,
+                    kind,
+                    size,
+                    hash,
+                    status,
+                    created_at,
+                    updated_at,
+                    last_seen_at,
+                    deleted_at,
+                    last_normalized_path,
+                    normalized_retained_at
+                FROM files
+                WHERE path LIKE ? AND status != 'deleted'
+                `,
             )
-            .all(`${this.configService.vaultPath}%`, 'deleted') as Array<{ id: number; path: string }>;
-        const seenPathSet = new Set(seenPaths.map((filePath) => resolve(filePath)));
+            .all(`${this.configService.vaultPath}%`) as FileRecord[];
+        const seenPathSet = new Set(
+            seenPaths.map((filePath) => resolve(filePath)),
+        );
 
-        for (const record of records) {
-            if (!seenPathSet.has(resolve(record.path))) {
-                this.updateStatus(record.id, 'deleted');
-            }
-        }
+        return records.filter(
+            (record) => !seenPathSet.has(resolve(record.path)),
+        );
     }
 
     getFileById(fileId: number): FileRecord {
         const database = this.databaseService.getDatabase();
         return database
             .prepare(
-                'SELECT id, path, name, extension, kind, size, hash, status, created_at, updated_at, last_seen_at FROM files WHERE id = ?',
+                `
+                SELECT
+                    id,
+                    path,
+                    name,
+                    extension,
+                    kind,
+                    size,
+                    hash,
+                    status,
+                    created_at,
+                    updated_at,
+                    last_seen_at,
+                    deleted_at,
+                    last_normalized_path,
+                    normalized_retained_at
+                FROM files
+                WHERE id = ?
+                `,
             )
             .get(fileId) as FileRecord;
     }
@@ -130,11 +250,16 @@ export class FilesService {
         const resolvedPath = isAbsolute(inputPath)
             ? resolve(inputPath)
             : resolve(this.configService.vaultPath, inputPath);
-        const relativePath = relative(this.configService.vaultPath, resolvedPath);
+        const relativePath = relative(
+            this.configService.vaultPath,
+            resolvedPath,
+        );
 
         if (relativePath.startsWith('..') || relativePath === '') {
             if (resolvedPath !== resolve(this.configService.vaultPath)) {
-                throw new BadRequestException('只允许处理 Apothecary Vault 目录中的文件');
+                throw new BadRequestException(
+                    '只允许处理 Apothecary Vault 目录中的文件',
+                );
             }
         }
 
@@ -160,7 +285,16 @@ export class FilesService {
         const database = this.databaseService.getDatabase();
         database
             .prepare(
-                'UPDATE files SET status = ?, updated_at = CURRENT_TIMESTAMP, last_seen_at = CURRENT_TIMESTAMP WHERE id = ?',
+                `
+                UPDATE files
+                SET
+                    status = ?,
+                    deleted_at = NULL,
+                    normalized_retained_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP,
+                    last_seen_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                `,
             )
             .run(status, fileId);
     }
