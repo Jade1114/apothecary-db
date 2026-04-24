@@ -35,7 +35,7 @@ describe('DocumentsService', () => {
 
         expect(document.id).toBe(created.documentId);
         expect(document.file_id).toBe(fileId);
-        expect(document.content).toBe('测试资料');
+        expect(document.plain_text).toBe('测试资料');
     });
 
     it('should create chunks and chunk vector mappings', () => {

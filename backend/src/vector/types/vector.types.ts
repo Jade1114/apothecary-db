@@ -9,6 +9,7 @@ export type VectorPoint = {
 export type SearchVectorInput = {
     queryVector: number[];
     limit?: number;
+    documentId?: number;
     filter?: Record<string, unknown>;
 };
 

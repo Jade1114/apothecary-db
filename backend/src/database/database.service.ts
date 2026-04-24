@@ -24,6 +24,8 @@ export class DatabaseService implements OnModuleInit {
         kind TEXT NOT NULL,
         hash TEXT,
         status TEXT NOT NULL DEFAULT 'active',
+        last_normalized_path TEXT,
+        normalized_retained_at DATETIME,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
@@ -31,12 +33,18 @@ export class DatabaseService implements OnModuleInit {
       CREATE TABLE IF NOT EXISTS documents (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         file_id INTEGER,
-        content TEXT NOT NULL,
+        plain_text TEXT NOT NULL,
         source_type TEXT,
         source_name TEXT,
+        title TEXT,
         source_path TEXT,
         normalized_path TEXT,
+        parser_name TEXT,
+        parser_version TEXT,
+        parse_status TEXT NOT NULL DEFAULT 'ready',
+        index_status TEXT NOT NULL DEFAULT 'failed',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (file_id) REFERENCES files (id)
       );
 
@@ -44,7 +52,11 @@ export class DatabaseService implements OnModuleInit {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         document_id INTEGER NOT NULL,
         chunk_index INTEGER NOT NULL,
-        content TEXT NOT NULL,
+        text TEXT NOT NULL,
+        token_count INTEGER,
+        source_block_start INTEGER,
+        source_block_end INTEGER,
+        metadata_json TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (document_id) REFERENCES documents (id),
         UNIQUE(document_id, chunk_index)
@@ -67,29 +79,165 @@ export class DatabaseService implements OnModuleInit {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (document_id) REFERENCES documents (id)
       );
+
+      CREATE TABLE IF NOT EXISTS sync_jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        file_id INTEGER,
+        job_type TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        error_message TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (file_id) REFERENCES files (id)
+      );
     `);
 
         this.ensureColumn('files', 'name', 'TEXT');
         this.ensureColumn('files', 'extension', 'TEXT');
         this.ensureColumn('files', 'size', 'INTEGER');
-        this.ensureColumn('files', 'last_seen_at', 'DATETIME DEFAULT CURRENT_TIMESTAMP');
+        this.ensureColumn(
+            'files',
+            'last_seen_at',
+            'DATETIME DEFAULT CURRENT_TIMESTAMP',
+        );
+        this.ensureColumn('files', 'deleted_at', 'DATETIME');
+        this.ensureColumn('files', 'last_normalized_path', 'TEXT');
+        this.ensureColumn('files', 'normalized_retained_at', 'DATETIME');
+        this.ensureColumn('documents', 'plain_text', 'TEXT');
+        this.ensureColumn('documents', 'title', 'TEXT');
         this.ensureColumn('documents', 'source_path', 'TEXT');
         this.ensureColumn('documents', 'normalized_path', 'TEXT');
+        this.ensureColumn('documents', 'parser_name', 'TEXT');
+        this.ensureColumn('documents', 'parser_version', 'TEXT');
+        this.ensureColumn('documents', 'parse_status', "TEXT DEFAULT 'ready'");
+        this.ensureColumn('documents', 'index_status', "TEXT DEFAULT 'failed'");
+        this.ensureColumn(
+            'documents',
+            'updated_at',
+            'DATETIME DEFAULT CURRENT_TIMESTAMP',
+        );
+        this.ensureColumn('chunks', 'text', 'TEXT');
+        this.ensureColumn('chunks', 'token_count', 'INTEGER');
+        this.ensureColumn('chunks', 'source_block_start', 'INTEGER');
+        this.ensureColumn('chunks', 'source_block_end', 'INTEGER');
+        this.ensureColumn('chunks', 'metadata_json', 'TEXT');
+        this.backfillDocumentPlainText();
+        this.backfillChunkText();
+        this.dropColumnIfExists('documents', 'content');
+        this.dropColumnIfExists('chunks', 'content');
+        this.normalizeLegacyDocumentStatuses();
     }
 
     getDatabase(): DatabaseSync {
         return this.database;
     }
 
-    private ensureColumn(tableName: string, columnName: string, columnDefinition: string): void {
+    /**
+     * 在事务中执行数据库操作。
+     * * 该方法遵循 ACID 原则：
+     * 1. 自动开启事务 (`BEGIN IMMEDIATE`) 以防止死锁。
+     * 2. 执行传入的业务逻辑 `work`。
+     * 3. 若成功则 `COMMIT`，若捕获到任何异常则自动 `ROLLBACK`。
+     * * @template T 业务逻辑返回值的类型。
+     * @param {() => Promise<T>} work 需要在事务中执行的异步回调函数。
+     * @returns {Promise<T>} 返回回调函数的执行结果。
+     * @throws {Error} 重新抛出 `work` 执行期间产生的错误，或数据库指令失败的错误。
+     * * @example
+     * await repository.withTransaction(async () => {
+     * await repository.updateInventory(itemId, -1);
+     * await repository.createOrder(orderData);
+     * });
+     */
+    async withTransaction<T>(work: () => Promise<T>): Promise<T> {
+        this.database.exec('BEGIN IMMEDIATE');
+
+        try {
+            const result = await work();
+            this.database.exec('COMMIT');
+            return result;
+        } catch (error) {
+            this.database.exec('ROLLBACK');
+            throw error;
+        }
+    }
+
+    private ensureColumn(
+        tableName: string,
+        columnName: string,
+        columnDefinition: string,
+    ): void {
+        if (this.columnExists(tableName, columnName)) {
+            return;
+        }
+
+        this.database.exec(
+            `ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`,
+        );
+    }
+
+    private columnExists(tableName: string, columnName: string): boolean {
         const columns = this.database
             .prepare(`PRAGMA table_info(${tableName})`)
             .all() as Array<{ name: string }>;
-        const exists = columns.some((column) => column.name === columnName);
-        if (!exists) {
-            this.database.exec(
-                `ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`,
-            );
+        return columns.some((column) => column.name === columnName);
+    }
+
+    private dropColumnIfExists(tableName: string, columnName: string): void {
+        if (!this.columnExists(tableName, columnName)) {
+            return;
         }
+
+        this.database.exec(
+            `ALTER TABLE ${tableName} DROP COLUMN ${columnName}`,
+        );
+    }
+
+    private normalizeLegacyDocumentStatuses(): void {
+        this.database.exec(`
+          UPDATE documents
+          SET parse_status = CASE
+            WHEN parse_status IS NULL THEN 'ready'
+            WHEN parse_status = 'parsed' THEN 'ready'
+            WHEN parse_status = 'pending' THEN 'failed'
+            ELSE parse_status
+          END;
+
+          UPDATE documents
+          SET index_status = CASE
+            WHEN index_status = 'indexed' THEN 'ready'
+            WHEN index_status = 'pending' THEN 'failed'
+            WHEN index_status IS NULL AND EXISTS (
+              SELECT 1 FROM chunks WHERE chunks.document_id = documents.id
+            ) THEN 'ready'
+            WHEN index_status IS NULL THEN 'failed'
+            ELSE index_status
+          END;
+        `);
+    }
+
+    private backfillDocumentPlainText(): void {
+        if (!this.columnExists('documents', 'content')) {
+            return;
+        }
+
+        this.database.exec(`
+          UPDATE documents
+          SET plain_text = content
+          WHERE (plain_text IS NULL OR plain_text = '')
+            AND content IS NOT NULL;
+        `);
+    }
+
+    private backfillChunkText(): void {
+        if (!this.columnExists('chunks', 'content')) {
+            return;
+        }
+
+        this.database.exec(`
+          UPDATE chunks
+          SET text = content
+          WHERE (text IS NULL OR text = '')
+            AND content IS NOT NULL;
+        `);
     }
 }

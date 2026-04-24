@@ -2,7 +2,8 @@ export type ChunkRecord = {
     id: number;
     documentId: number;
     chunkIndex: number;
-    content: string;
+    text: string;
+    tokenCount: number | null;
     createdAt: string;
 };
 

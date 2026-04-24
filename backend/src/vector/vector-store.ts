@@ -8,4 +8,5 @@ export interface VectorStore {
     upsertPoints(points: VectorPoint[]): Promise<void>;
     search(input: SearchVectorInput): Promise<VectorPoint[]>;
     deleteByDocumentId(documentId: number): Promise<void>;
+    countPointsByDocumentId(documentId: number): Promise<number>;
 }

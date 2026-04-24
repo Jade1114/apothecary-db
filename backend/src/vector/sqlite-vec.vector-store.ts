@@ -55,6 +55,10 @@ export class SqliteVecVectorStore implements VectorStore {
         await this.ensureIndex();
         const database = this.databaseService.getDatabase();
         const limit = input.limit ?? 5;
+        const scopedFilter =
+            typeof input.documentId === 'number'
+                ? 'AND vec.rowid IN (SELECT id FROM chunks WHERE document_id = ?)'
+                : '';
         const rows = database
             .prepare(
                 `
@@ -63,21 +67,23 @@ export class SqliteVecVectorStore implements VectorStore {
                     vec.distance AS distance,
                     chunks.document_id AS document_id,
                     chunks.chunk_index AS chunk_index,
-                    chunks.content AS content,
+                    chunks.text AS content,
                     documents.source_type AS source_type,
                     documents.source_name AS source_name
                 FROM ${SQLITE_VEC_TABLE} AS vec
                 JOIN chunks ON chunks.id = vec.rowid
                 JOIN documents ON documents.id = chunks.document_id
+                LEFT JOIN files ON files.id = documents.file_id
                 WHERE vec.embedding MATCH ?
+                  AND k = ?
+                  AND documents.parse_status IN ('ready', 'stale')
+                  AND documents.index_status IN ('ready', 'stale')
+                  AND (documents.file_id IS NULL OR files.status != 'deleted')
+                  ${scopedFilter}
                 ORDER BY vec.distance ASC
-                LIMIT ?
                 `,
             )
-            .all(
-                Buffer.from(new Float32Array(input.queryVector).buffer),
-                limit,
-            ) as Array<Record<string, unknown>>;
+            .all(...this.buildSearchParams(input, limit)) as Array<Record<string, unknown>>;
 
         return rows.map((row) => ({
             id: String(row.chunk_id),
@@ -107,6 +113,23 @@ export class SqliteVecVectorStore implements VectorStore {
         }
     }
 
+    async countPointsByDocumentId(documentId: number): Promise<number> {
+        await this.ensureIndex();
+        const database = this.databaseService.getDatabase();
+        const row = database
+            .prepare(
+                `
+                SELECT COUNT(*) AS count
+                FROM ${SQLITE_VEC_TABLE} AS vec
+                JOIN chunks ON chunks.id = vec.rowid
+                WHERE chunks.document_id = ?
+                `,
+            )
+            .get(documentId) as { count: number };
+
+        return Number(row.count);
+    }
+
     private getChunkId(point: VectorPoint): number {
         const value = point.payload.chunkId;
         if (typeof value !== 'number' || !Number.isInteger(value)) {
@@ -114,5 +137,17 @@ export class SqliteVecVectorStore implements VectorStore {
         }
 
         return value;
+    }
+
+    private buildSearchParams(input: SearchVectorInput, limit: number): Array<number | Buffer> {
+        const params: Array<number | Buffer> = [
+            Buffer.from(new Float32Array(input.queryVector).buffer),
+            limit,
+        ];
+
+        if (typeof input.documentId === 'number') {
+            params.push(input.documentId);
+        }
+        return params;
     }
 }
