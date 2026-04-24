@@ -58,6 +58,12 @@ describe('RagController', () => {
             limit: 3,
         });
 
+        expect(vectorStore.search).toHaveBeenCalledWith({
+            queryVector: [0.1, 0.2, 0.3],
+            limit: 3,
+            documentId: 22,
+        });
+
         expect(result).toEqual({
             query: 'NestJS 和 RAG',
             answer: '这是基于 evidence 的回答',

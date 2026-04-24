@@ -25,6 +25,7 @@ export class RagService {
         const points = await this.vectorStore.search({
             queryVector,
             limit,
+            documentId: input.documentId,
         });
 
         const evidence: RagEvidenceItem[] = points.map((point) => ({
@@ -36,22 +37,33 @@ export class RagService {
             sourceName: this.getStringValue(point.payload.sourceName),
         }));
 
-        const filteredEvidence = input.documentId
-            ? evidence.filter((item) => item.documentId === input.documentId)
-            : evidence;
+        if (evidence.length === 0) {
+            return {
+                query: cleanedQuery,
+                answer: '',
+                evidence: [],
+                retrieval: {
+                    limit,
+                    matchedCount: 0,
+                },
+                generation: {
+                    answered: false,
+                },
+            };
+        }
 
         const answer = await this.llmService.generateAnswer({
             query: cleanedQuery,
-            evidence: filteredEvidence.map((item) => item.content),
+            evidence: evidence.map((item) => item.content),
         });
 
         return {
             query: cleanedQuery,
             answer,
-            evidence: filteredEvidence,
+            evidence,
             retrieval: {
                 limit,
-                matchedCount: filteredEvidence.length,
+                matchedCount: evidence.length,
             },
             generation: {
                 answered: true,
