@@ -16,7 +16,10 @@ type IngestResponse = {
 };
 
 type VaultScanItem = {
+    fileId: number;
     filePath: string;
+    event: 'new' | 'changed' | 'unchanged' | 'deleted';
+    action: 'indexed' | 'skipped' | 'deleted';
     success: boolean;
     result?: {
         sourceName: string | null;
@@ -31,8 +34,17 @@ type VaultScanItem = {
 type VaultScanResponse = {
     vaultPath: string;
     scannedCount: number;
+    reconciledCount: number;
     importedCount: number;
+    skippedCount: number;
+    deletedCount: number;
     failedCount: number;
+    breakdown: {
+        newCount: number;
+        changedCount: number;
+        unchangedCount: number;
+        deletedCount: number;
+    };
     items: VaultScanItem[];
 };
 
@@ -178,7 +190,10 @@ function App() {
                                     Vault：<code>{vaultScanResult.vaultPath}</code>
                                 </p>
                                 <p>
-                                    扫描 {vaultScanResult.scannedCount} 个文件，成功 {vaultScanResult.importedCount} 个，失败 {vaultScanResult.failedCount} 个。
+                                    扫描 {vaultScanResult.scannedCount} 个文件，reconcile {vaultScanResult.reconciledCount} 条记录，索引 {vaultScanResult.importedCount} 个，跳过 {vaultScanResult.skippedCount} 个，删除回收 {vaultScanResult.deletedCount} 个，失败 {vaultScanResult.failedCount} 个。
+                                </p>
+                                <p>
+                                    新增 {vaultScanResult.breakdown.newCount}，变更 {vaultScanResult.breakdown.changedCount}，未变 {vaultScanResult.breakdown.unchangedCount}，删除 {vaultScanResult.breakdown.deletedCount}。
                                 </p>
                                 <pre>{JSON.stringify(vaultScanResult.items.slice(0, 20), null, 4)}</pre>
                             </div>
