@@ -13,6 +13,7 @@
 5. [文件同步流程](current/04-sync-flow.md)
 6. [Retrieval 侧逻辑](current/05-retrieval.md)
 7. [下一步路线](roadmap/next-steps.md)
+8. [P0 可恢复索引内核 RFC](roadmap/p0-recoverable-index-kernel.md)
 
 ## 文档分类
 
@@ -30,6 +31,8 @@
 下一阶段可能要做的事。
 
 这里不记录已经完成的历史计划，只记录从当前代码继续往前走时需要讨论或拆分的方向。
+
+当前优先级最高的是 [P0 可恢复索引内核 RFC](roadmap/p0-recoverable-index-kernel.md)，它约束后续文件状态机、hash 语义和中断恢复实现。
 
 ### `archive/`
 
@@ -63,4 +66,3 @@ files
 - ignore 规则
 - RAG 的生成侧质量优化
 - Electron 桌面壳
-

@@ -31,6 +31,8 @@
 
 当前 `files.status = active` 的写入时机偏早，`registerFile()` 在扫描/登记阶段就会把文件设为 `active` 并覆盖 `hash`。
 
+详细方案见 [P0 可恢复索引内核 RFC](p0-recoverable-index-kernel.md)。
+
 后续集中处理时，需要把 `active` 收紧为全流程成功后的最终确认：
 
 ```text
