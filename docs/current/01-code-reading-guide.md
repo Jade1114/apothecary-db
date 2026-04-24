@@ -49,7 +49,7 @@
 
 重点理解：
 
-- 文件 path/hash/size/status 如何记录
+- 文件 path/size/status 以及 `observed_hash`/`indexed_hash` 如何记录
 - 新文件、变化文件、未变化文件如何判断
 - 删除文件如何保留 `files.status = deleted`
 
@@ -145,4 +145,3 @@ parser 回答“不同文件格式如何变成统一文本”：
 - Vault 扫描
 - 手动文本 ingest
 - RAG 查询
-

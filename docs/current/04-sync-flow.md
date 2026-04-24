@@ -107,40 +107,43 @@ embedding 在事务外完成。
 
 如果已有旧版本，当前会用 `stale` 表达“旧版本仍可作为回退检索内容”。
 
-## 已知状态语义风险
+## 文件版本确认语义
 
-当前 `registerFile()` 在发现新文件或重新看到已有文件时，会立即写入当前文件快照，并把 `files.status` 设置为 `active`。
+当前文件版本语义已经拆成两层：
 
-这让 `active` 同时承载了两种语义：
+- `observed_hash`：最近一次扫描看到的文件版本
+- `indexed_hash`：当前已经成功索引的文件版本
 
-- 原始文件当前存在
-- 原始文件对应的 parse/index/embedding 全流程已经完成并可用
+`registerFile()` 只负责更新 `observed_hash/observed_at`，不会提前确认 `indexed_hash`。
 
-这两个语义后续需要拆开或重新收紧。更理想的语义是：
+处理成功后的最终确认点会执行：
 
 ```text
-active = 当前文件版本已经完成 parse + normalized document + chunks + embedding + vector 写入
+files.indexed_hash = files.observed_hash
+files.hash = files.observed_hash
+files.status = active
 ```
 
-也就是说，`active` 应该更像全流程末尾的确认状态，而不是扫描或登记阶段的即时状态。
+因此：
 
-当前存在一个硬中断窗口：
+- `active` 表示当前观测版本已经完成 parse + normalized document + chunks + embedding + vector 写入。
+- `observed_hash != indexed_hash` 时，即使路径和兼容 `hash` 看起来存在，也必须进入 reconcile。
+- `hash` 暂时保留为兼容字段，语义跟随已索引版本。
+
+这个设计用于消除下面的硬中断窗口：
 
 ```text
-registerFile 已经更新 files.hash/status
+registerFile 已经看到新文件版本
 → 进程被 kill / 服务崩溃 / 断电
 → 旧 document 还没有标记 stale，也没有完成新索引
-→ 下次扫描时 hash 看起来已是最新
-→ 可能误判为 unchanged 并跳过重建
+→ 下次扫描时 observed_hash != indexed_hash
+→ 继续进入修复式 reconcile
 ```
 
-后续集中处理时建议考虑：
+仍待后续处理：
 
-- 处理成功前不要覆盖代表“已索引版本”的 `files.hash`
-- 或拆成 `observed_hash` 与 `indexed_hash`
-- `registerFile()` 只表达 discovered / seen / pending 语义
-- `files.status = active` 只在 `markProcessed()` 或同等最终确认点写入
 - 应用启动时处理残留 `sync_jobs.status = running` 的恢复策略
+- 同一文件并发 reconcile 的串行化规则
 
 ## 删除 reconcile
 

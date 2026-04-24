@@ -8,6 +8,10 @@ export type FileRecord = {
     kind: string;
     size: number;
     hash: string | null;
+    observed_hash: string | null;
+    indexed_hash: string | null;
+    observed_at: string | null;
+    indexed_at: string | null;
     status: FileStatus;
     created_at: string;
     updated_at: string;

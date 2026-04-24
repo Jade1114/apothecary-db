@@ -31,6 +31,10 @@ export class FilesService {
                     kind,
                     size,
                     hash,
+                    observed_hash,
+                    indexed_hash,
+                    observed_at,
+                    indexed_at,
                     status,
                     created_at,
                     updated_at,
@@ -54,14 +58,15 @@ export class FilesService {
                         extension,
                         kind,
                         size,
-                        hash,
+                        observed_hash,
                         status,
+                        observed_at,
                         last_seen_at,
                         deleted_at,
                         last_normalized_path,
                         normalized_retained_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, 'active', CURRENT_TIMESTAMP, NULL, NULL, NULL)
+                    VALUES (?, ?, ?, ?, ?, ?, 'error', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, NULL, NULL)
                     `,
                 )
                 .run(
@@ -80,8 +85,9 @@ export class FilesService {
             };
         }
 
+        const indexedHash = existing.indexed_hash ?? existing.hash;
         const shouldProcess =
-            existing.hash !== snapshot.hash ||
+            indexedHash !== snapshot.hash ||
             existing.status !== 'active' ||
             existing.deleted_at !== null;
         database
@@ -92,8 +98,9 @@ export class FilesService {
                     extension = ?,
                     kind = ?,
                     size = ?,
-                    hash = ?,
-                    status = 'active',
+                    observed_hash = ?,
+                    status = ?,
+                    observed_at = CURRENT_TIMESTAMP,
                     deleted_at = NULL,
                     normalized_retained_at = NULL,
                     updated_at = CURRENT_TIMESTAMP,
@@ -106,6 +113,7 @@ export class FilesService {
                 snapshot.kind,
                 snapshot.size,
                 snapshot.hash,
+                shouldProcess ? 'error' : existing.status,
                 existing.id,
             );
 
@@ -117,7 +125,24 @@ export class FilesService {
     }
 
     markProcessed(fileId: number): void {
-        this.updateStatus(fileId, 'active');
+        const database = this.databaseService.getDatabase();
+        database
+            .prepare(
+                `
+                UPDATE files
+                SET
+                    hash = observed_hash,
+                    indexed_hash = observed_hash,
+                    indexed_at = CURRENT_TIMESTAMP,
+                    status = 'active',
+                    deleted_at = NULL,
+                    normalized_retained_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP,
+                    last_seen_at = COALESCE(observed_at, last_seen_at, CURRENT_TIMESTAMP)
+                WHERE id = ?
+                `,
+            )
+            .run(fileId);
     }
 
     markError(fileId: number): void {
@@ -173,6 +198,10 @@ export class FilesService {
                     kind,
                     size,
                     hash,
+                    observed_hash,
+                    indexed_hash,
+                    observed_at,
+                    indexed_at,
                     status,
                     created_at,
                     updated_at,
@@ -207,6 +236,10 @@ export class FilesService {
                     kind,
                     size,
                     hash,
+                    observed_hash,
+                    indexed_hash,
+                    observed_at,
+                    indexed_at,
                     status,
                     created_at,
                     updated_at,

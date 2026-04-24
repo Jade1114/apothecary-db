@@ -56,7 +56,7 @@ Model Providers
 
 负责原始文件身份。
 
-它记录文件路径、文件名、扩展名、hash、大小、状态和删除时间。
+它记录文件路径、文件名、扩展名、大小、状态、删除时间，以及观测版本 `observed_hash` 和已索引版本 `indexed_hash`。
 
 ### `parser`
 
@@ -122,4 +122,3 @@ controller
 ```
 
 `database` 和 `config` 是底座模块，不应该反向依赖业务模块。
-

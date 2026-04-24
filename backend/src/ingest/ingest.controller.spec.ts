@@ -134,6 +134,11 @@ describe('IngestController', () => {
                     name,
                     extension,
                     size,
+                    hash,
+                    observed_hash,
+                    indexed_hash,
+                    observed_at,
+                    indexed_at,
                     status,
                     last_normalized_path,
                     normalized_retained_at
@@ -147,6 +152,11 @@ describe('IngestController', () => {
                 name: string;
                 extension: string;
                 size: number;
+                hash: string | null;
+                observed_hash: string | null;
+                indexed_hash: string | null;
+                observed_at: string | null;
+                indexed_at: string | null;
                 status: string;
                 last_normalized_path: string | null;
                 normalized_retained_at: string | null;
@@ -162,6 +172,11 @@ describe('IngestController', () => {
         expect(file.name).toBe('notes.md');
         expect(file.extension).toBe('md');
         expect(file.size).toBeGreaterThan(0);
+        expect(file.hash).toBeTruthy();
+        expect(file.observed_hash).toBe(file.hash);
+        expect(file.indexed_hash).toBe(file.hash);
+        expect(file.observed_at).toBeTruthy();
+        expect(file.indexed_at).toBeTruthy();
         expect(file.status).toBe('active');
         expect(file.last_normalized_path).toBe(result.normalizedPath);
         expect(file.normalized_retained_at).toBeNull();
@@ -235,8 +250,13 @@ describe('IngestController', () => {
 
         const database = databaseService.getDatabase();
         const file = database
-            .prepare('SELECT hash, status FROM files WHERE path = ?')
-            .get(filePath) as { hash: string; status: string };
+            .prepare('SELECT hash, observed_hash, indexed_hash, status FROM files WHERE path = ?')
+            .get(filePath) as {
+                hash: string;
+                observed_hash: string;
+                indexed_hash: string;
+                status: string;
+            };
         const document = database
             .prepare('SELECT id, plain_text FROM documents WHERE file_id = (SELECT id FROM files WHERE path = ?)')
             .get(filePath) as { id: number; plain_text: string };
@@ -248,6 +268,8 @@ describe('IngestController', () => {
             .get(document.id) as { count: number };
 
         expect(file.hash).toBeTruthy();
+        expect(file.observed_hash).toBe(file.hash);
+        expect(file.indexed_hash).toBe(file.hash);
         expect(file.status).toBe('active');
         expect(document.id).toBe(originalDocument.id);
         expect(document.plain_text).toContain('新内容');
@@ -373,8 +395,14 @@ describe('IngestController', () => {
 
         const result = await ingestController.scanVault();
         const file = database
-            .prepare('SELECT id, status FROM files WHERE path = ?')
-            .get(filePath) as { id: number; status: string };
+            .prepare('SELECT id, hash, observed_hash, indexed_hash, status FROM files WHERE path = ?')
+            .get(filePath) as {
+                id: number;
+                hash: string;
+                observed_hash: string;
+                indexed_hash: string;
+                status: string;
+            };
         const after = database
             .prepare('SELECT id, plain_text, parse_status, index_status FROM documents WHERE source_path = ?')
             .get(filePath) as {
@@ -409,6 +437,8 @@ describe('IngestController', () => {
             }),
         ]);
         expect(file.status).toBe('error');
+        expect(file.hash).toBe(file.indexed_hash);
+        expect(file.observed_hash).not.toBe(file.indexed_hash);
         expect(after.id).toBe(before.id);
         expect(after.plain_text).toBe(before.plain_text);
         expect(after.parse_status).toBe('stale');
@@ -438,12 +468,19 @@ describe('IngestController', () => {
             .prepare('SELECT id, plain_text FROM documents WHERE source_path = ?')
             .get(filePath) as { id: number; plain_text: string };
         const repairedFile = database
-            .prepare('SELECT status FROM files WHERE id = ?')
-            .get(file.id) as { status: string };
+            .prepare('SELECT hash, observed_hash, indexed_hash, status FROM files WHERE id = ?')
+            .get(file.id) as {
+                hash: string;
+                observed_hash: string;
+                indexed_hash: string;
+                status: string;
+            };
 
         expect(repaired.id).toBe(before.id);
         expect(repaired.plain_text).toContain('新内容');
         expect(repairedFile.status).toBe('active');
+        expect(repairedFile.hash).toBe(repairedFile.observed_hash);
+        expect(repairedFile.indexed_hash).toBe(repairedFile.observed_hash);
     });
 
     it('should repair an unchanged file when vector rows are missing', async () => {

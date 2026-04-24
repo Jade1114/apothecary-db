@@ -40,6 +40,10 @@ sync_jobs
 - `kind`
 - `size`
 - `hash`
+- `observed_hash`
+- `indexed_hash`
+- `observed_at`
+- `indexed_at`
 - `status`
 - `last_seen_at`
 - `deleted_at`
@@ -53,9 +57,15 @@ sync_jobs
 - `error`
 - `ignored`
 
-当前实现里，`active` 仍然偏宽：它既可能表示文件被扫描到，也可能表示文件已经完成索引。后续需要收紧为“当前文件版本已完成 parse/index/embedding 并可用”的最终确认状态。
+当前语义：
 
-`hash` 的语义也需要同步收紧：如果它表示“已成功索引的文件版本”，则不应在处理成功前被新扫描快照提前覆盖；如果需要记录最近扫描结果，可以考虑拆出 `observed_hash`。
+- `observed_hash`：最近一次扫描看到的原始文件版本
+- `indexed_hash`：当前已经成功完成 parse/index/embedding 的文件版本
+- `hash`：兼容字段，当前跟随已索引版本，即 `indexed_hash`
+- `active`：当前文件版本已经完成索引并在线可用
+- `error`：最近一次同步失败，可能仍有旧 `indexed_hash` 对应的 stale 索引可用
+
+`registerFile()` 只更新观测版本；处理成功后才由最终确认点写入 `indexed_hash/hash` 并设置 `active`。
 
 删除只长期保留在 `files` 层。
 

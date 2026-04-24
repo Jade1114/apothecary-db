@@ -23,6 +23,10 @@ export class DatabaseService implements OnModuleInit {
         path TEXT NOT NULL UNIQUE,
         kind TEXT NOT NULL,
         hash TEXT,
+        observed_hash TEXT,
+        indexed_hash TEXT,
+        observed_at DATETIME,
+        indexed_at DATETIME,
         status TEXT NOT NULL DEFAULT 'active',
         last_normalized_path TEXT,
         normalized_retained_at DATETIME,
@@ -95,6 +99,10 @@ export class DatabaseService implements OnModuleInit {
         this.ensureColumn('files', 'name', 'TEXT');
         this.ensureColumn('files', 'extension', 'TEXT');
         this.ensureColumn('files', 'size', 'INTEGER');
+        this.ensureColumn('files', 'observed_hash', 'TEXT');
+        this.ensureColumn('files', 'indexed_hash', 'TEXT');
+        this.ensureColumn('files', 'observed_at', 'DATETIME');
+        this.ensureColumn('files', 'indexed_at', 'DATETIME');
         this.ensureColumn(
             'files',
             'last_seen_at',
@@ -125,6 +133,7 @@ export class DatabaseService implements OnModuleInit {
         this.backfillChunkText();
         this.dropColumnIfExists('documents', 'content');
         this.dropColumnIfExists('chunks', 'content');
+        this.backfillFileHashVersions();
         this.normalizeLegacyDocumentStatuses();
     }
 
@@ -238,6 +247,29 @@ export class DatabaseService implements OnModuleInit {
           SET text = content
           WHERE (text IS NULL OR text = '')
             AND content IS NOT NULL;
+        `);
+    }
+
+    private backfillFileHashVersions(): void {
+        this.database.exec(`
+          UPDATE files
+          SET observed_hash = hash
+          WHERE observed_hash IS NULL
+            AND hash IS NOT NULL;
+
+          UPDATE files
+          SET indexed_hash = hash
+          WHERE indexed_hash IS NULL
+            AND hash IS NOT NULL;
+
+          UPDATE files
+          SET observed_at = COALESCE(last_seen_at, updated_at, created_at, CURRENT_TIMESTAMP)
+          WHERE observed_at IS NULL;
+
+          UPDATE files
+          SET indexed_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
+          WHERE indexed_at IS NULL
+            AND indexed_hash IS NOT NULL;
         `);
     }
 }

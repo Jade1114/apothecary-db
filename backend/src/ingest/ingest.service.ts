@@ -388,6 +388,10 @@ export class IngestService {
             return false;
         }
 
+        if (!file.indexed_hash || file.observed_hash !== file.indexed_hash) {
+            return false;
+        }
+
         if (documentCount !== 1) {
             return false;
         }
