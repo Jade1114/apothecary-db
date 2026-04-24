@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import OpenAI from 'openai';
 import { ConfigService } from '../config/config.service';
-import type { EmbeddingProviderInfo, EmbeddingVector } from './types/embedding.types';
+import type {
+    EmbeddingProviderInfo,
+    EmbeddingVector,
+} from './types/embedding.types';
 
 @Injectable()
 export class EmbeddingService {
@@ -14,7 +17,11 @@ export class EmbeddingService {
             baseUrl: this.configService.embeddingBaseUrl,
         };
     }
-
+    /**
+     * 调用对应的 Embedding Model 进行向量插入并返回成功插入的文本内容
+     * @param text 待插入的文本
+     * @returns 插入成功的向量文本
+     */
     async embedText(text: string): Promise<EmbeddingVector> {
         const cleanedText = text.trim();
         if (!cleanedText) {

@@ -47,9 +47,13 @@ export class ParserService {
                     generatedAt,
                     parser: 'markdown-file-parser',
                     parserVersion: 'v1',
-                    rawText: this.markdownToPlainText(fileBuffer.toString('utf8')),
+                    rawText: this.markdownToPlainText(
+                        fileBuffer.toString('utf8'),
+                    ),
                     markdownBody: fileBuffer.toString('utf8').trim(),
-                    title: this.extractMarkdownTitle(fileBuffer.toString('utf8')),
+                    title: this.extractMarkdownTitle(
+                        fileBuffer.toString('utf8'),
+                    ),
                 });
             case '.pdf': {
                 const parser = new PDFParse({ data: fileBuffer });
@@ -68,11 +72,16 @@ export class ParserService {
                     parser: 'pdf-file-parser',
                     parserVersion: 'v1',
                     rawText: textResult.text.trim(),
-                    title: typeof infoResult.info?.Title === 'string' ? infoResult.info.Title : null,
+                    title:
+                        typeof infoResult.info?.Title === 'string'
+                            ? infoResult.info.Title
+                            : null,
                 });
             }
             case '.docx': {
-                const parsed = await mammoth.extractRawText({ buffer: fileBuffer });
+                const parsed = await mammoth.extractRawText({
+                    buffer: fileBuffer,
+                });
                 return this.createNormalizedDocument({
                     sourcePath,
                     sourceName,
@@ -87,7 +96,9 @@ export class ParserService {
                 });
             }
             default:
-                throw new BadRequestException(`当前暂不支持该文件类型: ${extension || 'unknown'}`);
+                throw new BadRequestException(
+                    `当前暂不支持该文件类型: ${extension || 'unknown'}`,
+                );
         }
     }
 
@@ -107,10 +118,15 @@ export class ParserService {
     }): NormalizedDocument {
         const plainText = input.rawText.trim();
         if (!plainText) {
-            throw new BadRequestException(`文件内容为空，无法导入: ${input.sourceName}`);
+            throw new BadRequestException(
+                `文件内容为空，无法导入: ${input.sourceName}`,
+            );
         }
 
-        const title = input.title ?? this.extractTitleFromText(plainText) ?? basename(input.sourceName, input.extension);
+        const title =
+            input.title ??
+            this.extractTitleFromText(plainText) ??
+            basename(input.sourceName, input.extension);
 
         return {
             fileId: input.hash.slice(0, 16),
@@ -119,7 +135,8 @@ export class ParserService {
             sourceName: input.sourceName,
             title,
             plainText,
-            markdownBody: input.markdownBody ?? this.textToMarkdownBody(plainText, title),
+            markdownBody:
+                input.markdownBody ?? this.textToMarkdownBody(plainText, title),
             metadata: {
                 extension: input.extension.replace('.', ''),
                 hash: input.hash,
@@ -135,11 +152,16 @@ export class ParserService {
         const resolvedPath = isAbsolute(inputPath)
             ? resolve(inputPath)
             : resolve(this.configService.vaultPath, inputPath);
-        const relativePath = relative(this.configService.vaultPath, resolvedPath);
+        const relativePath = relative(
+            this.configService.vaultPath,
+            resolvedPath,
+        );
 
         if (relativePath.startsWith('..') || relativePath === '') {
             if (resolvedPath !== resolve(this.configService.vaultPath)) {
-                throw new BadRequestException('只允许导入 Apothecary Vault 目录中的文件');
+                throw new BadRequestException(
+                    '只允许导入 Apothecary Vault 目录中的文件',
+                );
             }
         }
 
@@ -164,7 +186,10 @@ export class ParserService {
     }
 
     private extractTitleFromText(content: string): string | null {
-        const firstLine = content.split('\n').map((line) => line.trim()).find(Boolean);
+        const firstLine = content
+            .split('\n')
+            .map((line) => line.trim())
+            .find(Boolean);
         return firstLine ? firstLine.slice(0, 80) : null;
     }
 
