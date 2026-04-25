@@ -238,6 +238,72 @@ describe('IngestController', () => {
         ]);
     });
 
+    it('should serialize scan with an in-flight file ingest for the same file', async () => {
+        const relativePath = 'locked.txt';
+        const filePath = join(vaultPath, relativePath);
+        await writeFile(filePath, '锁定内容', 'utf8');
+
+        let releaseEmbedding!: () => void;
+        let resolveEmbeddingStarted!: () => void;
+        let didResolveEmbeddingStarted = false;
+        const embeddingGate = new Promise<void>((resolve) => {
+            releaseEmbedding = resolve;
+        });
+        const embeddingStarted = new Promise<void>((resolve) => {
+            resolveEmbeddingStarted = resolve;
+        });
+        (embeddingService.embedText as jest.Mock).mockImplementation(async () => {
+            if (!didResolveEmbeddingStarted) {
+                didResolveEmbeddingStarted = true;
+                resolveEmbeddingStarted();
+            }
+            await embeddingGate;
+            return [0.1, 0.2, 0.3];
+        });
+
+        const ingest = ingestController.ingestFile({ filePath: relativePath });
+        await embeddingStarted;
+        const scan = ingestController.scanVault();
+
+        releaseEmbedding();
+        const [ingestResult, scanResult] = await Promise.all([ingest, scan]);
+
+        const database = databaseService.getDatabase();
+        const file = database.prepare('SELECT id FROM files WHERE path = ?').get(filePath) as {
+            id: number;
+        };
+        const fileJobs = database
+            .prepare(
+                'SELECT job_type, status, error_message FROM sync_jobs WHERE file_id = ? ORDER BY id ASC',
+            )
+            .all(file.id) as Array<{
+                job_type: string;
+                status: string;
+                error_message: string | null;
+            }>;
+        const interruptedCount = database
+            .prepare("SELECT COUNT(*) AS count FROM sync_jobs WHERE error_message = 'interrupted'")
+            .get() as { count: number };
+
+        expect(ingestResult.success).toBe(true);
+        expect(scanResult.importedCount).toBe(0);
+        expect(scanResult.skippedCount).toBe(1);
+        expect((embeddingService.embedText as jest.Mock).mock.calls).toHaveLength(1);
+        expect(fileJobs).toEqual([
+            { job_type: 'parse', status: 'succeeded', error_message: null },
+            { job_type: 'index', status: 'succeeded', error_message: null },
+        ]);
+        expect(interruptedCount.count).toBe(0);
+        expect(scanResult.items).toEqual([
+            expect.objectContaining({
+                filePath,
+                event: 'unchanged',
+                action: 'skipped',
+                success: true,
+            }),
+        ]);
+    });
+
     it('should detect changed files and replace document content', async () => {
         const filePath = join(vaultPath, 'beta.txt');
         await writeFile(filePath, '旧内容', 'utf8');

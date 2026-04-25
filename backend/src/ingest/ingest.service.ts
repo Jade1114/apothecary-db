@@ -1,5 +1,5 @@
 import { readdir } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import { Inject, BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '../config/config.service';
 import { DatabaseService } from '../database/database.service';
@@ -28,6 +28,8 @@ import type {
 
 @Injectable()
 export class IngestService {
+    private readonly fileLocks = new Map<string, Promise<void>>();
+
     constructor(
         private readonly configService: ConfigService,
         private readonly databaseService: DatabaseService,
@@ -61,9 +63,11 @@ export class IngestService {
     }
 
     async ingestFile(request: IngestFileDto): Promise<FileIngestResponse> {
-        const registration = await this.filesService.registerFile(request.filePath);
-        const { result } = await this.reconcilePresentFile(request, registration);
-        return result;
+        return this.withFileLock(request.filePath, async () => {
+            const registration = await this.filesService.registerFile(request.filePath);
+            const { result } = await this.reconcilePresentFile(request, registration);
+            return result;
+        });
     }
 
     async scanVault(): Promise<VaultScanResponse> {
@@ -75,38 +79,46 @@ export class IngestService {
 
             for (const filePath of files) {
                 const relativePath = relative(this.configService.vaultPath, filePath);
-                const registration = await this.filesService.registerFile(relativePath);
-                try {
-                    const { action, result } = await this.reconcilePresentFile(
-                        { filePath: relativePath },
-                        registration,
-                    );
-                    items.push({
-                        fileId: registration.file.id,
-                        filePath,
-                        event: registration.reason,
-                        action,
-                        success: true,
-                        result,
-                    });
-                } catch (error) {
-                    items.push({
-                        fileId: registration.file.id,
-                        filePath,
-                        event: registration.reason,
-                        action: 'indexed',
-                        success: false,
-                        error: error instanceof Error ? error.message : '文件导入失败',
-                    });
-                }
+                const item = await this.withFileLock(
+                    relativePath,
+                    async (): Promise<VaultScanItem> => {
+                        const registration = await this.filesService.registerFile(relativePath);
+                        try {
+                            const { action, result } = await this.reconcilePresentFile(
+                                { filePath: relativePath },
+                                registration,
+                            );
+                            return {
+                                fileId: registration.file.id,
+                                filePath,
+                                event: registration.reason,
+                                action,
+                                success: true,
+                                result,
+                            };
+                        } catch (error) {
+                            return {
+                                fileId: registration.file.id,
+                                filePath,
+                                event: registration.reason,
+                                action: 'indexed',
+                                success: false,
+                                error: error instanceof Error ? error.message : '文件导入失败',
+                            };
+                        }
+                    },
+                );
+                items.push(item);
             }
 
             const missingFiles = this.filesService.listFilesPendingDeleteReconcile(files);
             for (const file of missingFiles) {
                 try {
-                    await this.syncJobsService.runJob('delete', file.id, async () =>
-                        this.reconcileDeletedFile(file),
-                    );
+                    await this.withFileLock(file.path, async () => {
+                        await this.syncJobsService.runJob('delete', file.id, async () =>
+                            this.reconcileDeletedFile(file),
+                        );
+                    });
                     items.push({
                         fileId: file.id,
                         filePath: file.path,
@@ -445,6 +457,41 @@ export class IngestService {
 
         for (const fileId of fileIds) {
             this.filesService.markInterrupted(fileId);
+        }
+    }
+
+    private async withFileLock<T>(filePath: string, work: () => Promise<T>): Promise<T> {
+        return this.withLock(this.fileLocks, this.normalizeFileLockKey(filePath), work);
+    }
+
+    private normalizeFileLockKey(filePath: string): string {
+        return resolve(
+            isAbsolute(filePath) ? filePath : join(this.configService.vaultPath, filePath),
+        );
+    }
+
+    private async withLock<T>(
+        locks: Map<string, Promise<void>>,
+        key: string,
+        work: () => Promise<T>,
+    ): Promise<T> {
+        const previous = locks.get(key) ?? Promise.resolve();
+        let release!: () => void;
+        const current = new Promise<void>((resolveCurrent) => {
+            release = resolveCurrent;
+        });
+        const next = previous.catch(() => undefined).then(() => current);
+        locks.set(key, next);
+
+        await previous.catch(() => undefined);
+
+        try {
+            return await work();
+        } finally {
+            release();
+            if (locks.get(key) === next) {
+                locks.delete(key);
+            }
         }
     }
 

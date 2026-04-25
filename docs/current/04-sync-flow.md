@@ -151,6 +151,21 @@ embedding 在事务外完成。
 
 当前恢复入口仍然挂在 `scanVault()` 开始处，还没有应用启动时自动触发的 runner。
 
+## 同一文件进程内串行化
+
+当前 `ingestFile()`、scan present reconcile 和 delete reconcile 会按文件路径做进程内串行化。
+
+规则：
+
+- 锁 key 是规范化后的绝对文件路径
+- 同一文件后进入的同步任务会等待前一个任务结束
+- 等待结束后重新 `registerFile()`，再判断是否需要处理
+- 如果前一个任务已经成功索引，后一个任务会走 unchanged + skipped
+
+这个锁只覆盖当前本地单进程 API 场景。
+
+它不是跨进程锁，也不是 runner lease。后续 async runner 到来时，仍需要数据库级 lease 或等价机制。
+
 ## 文件版本确认语义
 
 当前文件版本语义已经拆成两层：
@@ -187,7 +202,7 @@ registerFile 已经看到新文件版本
 仍待后续处理：
 
 - 应用启动时主动触发同一套恢复 / scan 流程
-- 同一文件并发 reconcile 的串行化规则
+- runner 级别的同一文件串行化规则
 
 ## 删除 reconcile
 
