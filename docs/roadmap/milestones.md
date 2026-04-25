@@ -68,6 +68,10 @@ v0.3.x
 - 把 `sync_jobs` 从过程审计表推进成“可恢复的同步过程模型”
 - 明确同一文件的串行化与失败重试语义
 
+关键文档：
+
+- [P1 同步过程模型 RFC](p1-sync-job-model.md)
+
 范围：
 
 - job 生命周期约束
@@ -227,14 +231,12 @@ Milestone A
 
 ### 现在就做
 
-- 完成 `Milestone A`
-- 明确 `files` 字段迁移方案
-- 定义启动恢复和 repair reconcile
-- 补充状态机相关测试
+- 以 `Milestone A` 的实现和测试作为当前稳定地基
+- 进入 `Milestone B` 的同步过程模型设计
+- 先收紧 `sync_jobs` 语义，不急着实现 watcher 或 runner
 
 ### 紧接着做
 
-- 进入 `Milestone B`
 - 把 `sync_jobs` 的恢复语义收紧
 - 明确单文件串行化策略
 - 设计 watcher 的事件模型，但先不急着大规模实现

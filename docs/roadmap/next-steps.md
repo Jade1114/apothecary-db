@@ -3,13 +3,14 @@
 这份文档记录从当前代码继续往前走的推荐顺序。
 
 如果你想先看整体节奏，请先读 [项目演进里程碑](milestones.md)。
-如果你想直接看当前最高优先级设计，请读 [P0 可恢复索引内核 RFC](p0-recoverable-index-kernel.md)。
+如果你想回看状态机地基，请读 [P0 可恢复索引内核 RFC](p0-recoverable-index-kernel.md)。
+如果你想看当前下一阶段设计，请读 [P1 同步过程模型 RFC](p1-sync-job-model.md)。
 
 ## 当前建议顺序
 
-### 1. 先完成 Milestone A：可恢复索引内核
+### 1. Milestone A：可恢复索引内核
 
-这是当前最高优先级。
+这是当前已经优先收口的地基。
 
 当前主链路已经打通，但还存在一个关键工程风险：
 
@@ -28,7 +29,7 @@
 
 详细方案见 [P0 可恢复索引内核 RFC](p0-recoverable-index-kernel.md)。
 
-### 2. 再完成 Milestone B：同步模型稳定化
+### 2. 当前进入 Milestone B：同步模型稳定化
 
 当 `files` 状态机稳定后，再收紧同步过程模型。
 
@@ -40,6 +41,8 @@
 - repair reconcile 由谁触发
 
 这一步的目标是把“同步过程记录”推进成“可恢复的同步模型”。
+
+详细方案见 [P1 同步过程模型 RFC](p1-sync-job-model.md)。
 
 ### 3. 然后设计 Milestone C：watcher
 

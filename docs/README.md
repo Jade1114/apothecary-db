@@ -15,6 +15,7 @@
 7. [项目演进里程碑](roadmap/milestones.md)
 8. [下一步路线](roadmap/next-steps.md)
 9. [P0 可恢复索引内核 RFC](roadmap/p0-recoverable-index-kernel.md)
+10. [P1 同步过程模型 RFC](roadmap/p1-sync-job-model.md)
 
 ## 文档分类
 
@@ -37,9 +38,12 @@
 
 - 先看 [项目演进里程碑](roadmap/milestones.md)，建立整体阶段感
 - 再看 [下一步路线](roadmap/next-steps.md)，理解当前建议顺序
-- 最后看 [P0 可恢复索引内核 RFC](roadmap/p0-recoverable-index-kernel.md)，进入最高优先级设计细节
+- 然后看 [P0 可恢复索引内核 RFC](roadmap/p0-recoverable-index-kernel.md)，理解当前状态机地基
+- 最后看 [P1 同步过程模型 RFC](roadmap/p1-sync-job-model.md)，进入同步模型稳定化设计
 
-当前优先级最高的是 [P0 可恢复索引内核 RFC](roadmap/p0-recoverable-index-kernel.md)，它约束后续文件状态机、hash 语义和中断恢复实现。
+当前实现已经围绕 [P0 可恢复索引内核 RFC](roadmap/p0-recoverable-index-kernel.md) 收紧了文件状态机、hash 语义和中断恢复。
+
+下一阶段优先看 [P1 同步过程模型 RFC](roadmap/p1-sync-job-model.md)，它约束后续 `sync_jobs` 语义、单文件串行化和失败重试入口。
 
 ### `archive/`
 
