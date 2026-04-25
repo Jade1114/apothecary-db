@@ -102,12 +102,18 @@ parser 回答“不同文件格式如何变成统一文本”：
 
 ## 7. 看 sync_jobs
 
-`sync_jobs` 记录同步过程，不保存业务内容：
+`sync_jobs` 记录同步过程尝试，不保存业务内容：
 
 - `backend/src/sync/sync-jobs.service.ts`
 - `backend/src/sync/types/sync-job.types.ts`
 
-当前它不是异步队列，只是同步执行过程中的审计记录。
+当前它不是异步队列，只是同步执行过程中的 attempt log。
+
+读这部分时要注意：
+
+- `pending` 主要留给后续 runner
+- `repair` 不是独立 job type
+- 是否需要重新处理文件，仍由 `files` 状态、hash 差异和索引健康检查决定
 
 ## 8. 看向量层
 

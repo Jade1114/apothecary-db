@@ -146,9 +146,13 @@ sqlite-vec 虚拟表。
 
 ## `sync_jobs`
 
-同步过程表。
+同步过程尝试表。
 
-它不保存业务内容，只记录同步尝试。
+它不保存业务内容，也不是当前阶段的异步任务队列。
+
+`sync_jobs` 中的一行表示一次 job attempt：系统曾经尝试对某个 file 执行某个同步阶段，结果是什么。
+
+文件当前是否需要处理，仍由 `files` 的最终事实和索引健康检查决定，而不是由 `sync_jobs` 单独决定。
 
 关键字段：
 
@@ -172,6 +176,10 @@ sqlite-vec 虚拟表。
 - `running`
 - `succeeded`
 - `failed`
+
+当前同步 API 会直接创建 `running` job。`pending` 暂时保留给后续 async runner，不是当前主链路正在使用的队列状态。
+
+`repair` 不是独立的 `job_type`。它表示 reconcile 发现状态不可信，然后重新执行 `parse`、`index` 或 `delete`。
 
 `scanVault()` 开始时会把残留的 `running` job 标记为 `failed`，并把 `error_message` 写成 `interrupted`。
 

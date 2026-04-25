@@ -9,7 +9,13 @@
 - `POST /ingest/file`
 - `POST /ingest/vault-scan`
 
-`sync_jobs` 只记录执行过程，不负责调度。
+`sync_jobs` 当前是同步过程的 attempt log，不负责调度，也不是异步队列。
+
+也就是说：
+
+- `scan/parse/index/delete` 记录的是一次阶段尝试
+- `pending` 暂时保留给后续 runner
+- repair 不是独立 job type，而是 reconcile 重新执行 `parse/index/delete` 的原因
 
 ## Vault 扫描流程
 
@@ -61,6 +67,21 @@ fast path 不再只看 document 是否存在。
 - sqlite-vec 点数量等于 chunk 数量
 
 否则进入修复式重建。
+
+修复式重建不会创建单独的 `repair` job。
+
+它仍然复用正常阶段：
+
+```text
+parse
+→ index
+```
+
+或者在文件缺失时执行：
+
+```text
+delete
+```
 
 ## parse + index
 
