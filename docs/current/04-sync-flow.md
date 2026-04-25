@@ -2,9 +2,9 @@
 
 ## 当前同步形态
 
-当前还没有 watcher，也没有异步任务 runner。
+当前已经有 watcher，但还没有异步任务 runner。
 
-同步由 API 请求触发：
+同步可以由 watcher 或 API 请求触发：
 
 - `POST /ingest/file`
 - `POST /ingest/vault-scan`
@@ -16,6 +16,30 @@
 - `scan/parse/index/delete` 记录的是一次阶段尝试
 - `pending` 暂时保留给后续 runner
 - repair 不是独立 job type，而是 reconcile 重新执行 `parse/index/delete` 的原因
+
+## watcher 流程
+
+后端启动后会启动 Vault watcher。
+
+第一版 watcher 只负责事件合并和触发扫描：
+
+```text
+后端启动
+→ 启动 watcher
+→ debounce 后异步触发一次初始 scanVault()
+→ 收集文件 add/change/delete 类事件
+→ 忽略 .apothecary/.obsidian/node_modules 和明显无关文件
+→ debounce 合并事件
+→ 调用 scanVault()
+```
+
+如果 `scanVault()` 运行期间又收到文件事件，watcher 不会并发启动第二个扫描。
+
+它会记录一次 pending scan，等当前扫描结束后再补跑一次。
+
+watcher 不直接执行 parse/index/delete。
+
+真正状态推进仍然只发生在 `scanVault()` 和后续 reconcile 里。
 
 ## Vault 扫描流程
 
@@ -226,8 +250,7 @@ registerFile 已经看到新文件版本
 
 ## 当前未实现
 
-- watcher
 - 异步队列
 - retry 调度器
 - 文件移动识别
-- ignore 规则
+- 复杂 ignore 规则

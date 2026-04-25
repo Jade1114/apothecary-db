@@ -31,6 +31,20 @@ export class ConfigService {
         return join(this.vaultPath, '.apothecary', 'normalized');
     }
 
+    get watcherEnabled(): boolean {
+        return (process.env.APOTHECARY_WATCHER_ENABLED ?? 'true').toLowerCase() !== 'false';
+    }
+
+    get watcherDebounceMs(): number {
+        const configuredValue = Number(
+            process.env.APOTHECARY_WATCHER_DEBOUNCE_MS ?? 750,
+        );
+
+        return Number.isFinite(configuredValue) && configuredValue >= 0
+            ? configuredValue
+            : 750;
+    }
+
     get embeddingApiKey(): string | null {
         return process.env.EMBEDDING_API_KEY ?? process.env.OPENAI_API_KEY ?? null;
     }

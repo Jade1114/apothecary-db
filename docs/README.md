@@ -74,7 +74,6 @@ files
 
 ## 当前不在主线里的内容
 
-- 文件监听 watcher
 - 真正异步 job runner
 - `document_blocks`
 - 文件移动识别

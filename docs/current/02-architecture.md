@@ -80,6 +80,12 @@ Model Providers
 
 它连接 `files/parser/documents/embedding/vector/sync`，完成扫描、导入、重建、删除回收。
 
+### `watcher`
+
+负责监听 Vault 文件变化。
+
+它不会直接 parse/index/delete，只会 debounce 文件事件并触发 `IngestService.scanVault()`，让现有 reconcile 逻辑继续作为唯一权威入口。
+
 ### `embedding`
 
 负责把文本转成向量。
@@ -115,7 +121,7 @@ Model Providers
 推荐理解为：
 
 ```text
-controller
+controller / watcher
 → ingest / rag
 → files / parser / documents / sync / embedding / vector / llm
 → database / config

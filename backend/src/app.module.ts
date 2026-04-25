@@ -10,6 +10,7 @@ import { ParserModule } from './parser/parser.module';
 import { ProfilesModule } from './profiles/profiles.module';
 import { RagModule } from './rag/rag.module';
 import { VectorModule } from './vector/vector.module';
+import { WatcherModule } from './watcher/watcher.module';
 
 @Module({
     imports: [
@@ -23,6 +24,7 @@ import { VectorModule } from './vector/vector.module';
         VectorModule,
         LlmModule,
         IngestModule,
+        WatcherModule,
         RagModule,
     ],
 })

@@ -12,5 +12,6 @@ import { IngestService } from './ingest.service';
     imports: [DocumentsModule, EmbeddingModule, VectorModule, ParserModule, FilesModule, SyncModule],
     controllers: [IngestController],
     providers: [IngestService],
+    exports: [IngestService],
 })
 export class IngestModule {}
