@@ -1,62 +1,49 @@
 # 下一步路线
 
-这份文档只记录从当前代码继续往前走的方向，不再重复历史计划。
+这份文档记录从当前代码继续往前走的推荐顺序。
+
+如果你想先看整体节奏，请先读 [项目演进里程碑](milestones.md)。
+如果你想直接看当前最高优先级设计，请读 [P0 可恢复索引内核 RFC](p0-recoverable-index-kernel.md)。
 
 ## 当前建议顺序
 
-### 1. 读代码并稳定当前心智模型
+### 1. 先完成 Milestone A：可恢复索引内核
 
-先按 `docs/current` 理解现有代码。
+这是当前最高优先级。
 
-这一阶段不急着继续扩大功能面。
+当前主链路已经打通，但还存在一个关键工程风险：
 
-重点确认：
+- `registerFile()` 在扫描阶段就更新 `files.hash`
+- `files.status = active` 的语义偏早
+- 如果进程在 parse/index 前中断，下次可能把半完成状态误判为已完成
 
-- 文件身份层是否清楚
-- 标准文档层是否清楚
-- chunk/vector 映射是否清楚
-- scan/reconcile 的状态语义是否清楚
+这一步的目标不是扩功能，而是把状态语义钉死。
 
-### 2. 清理和收紧 schema
+重点处理：
 
-旧兼容字段已经从主 schema 和主读写路径移除。
-
-后续可继续检查：
-
-- 是否要收紧 `documents.file_id` 的 nullable 设计
-- 手动文本 ingest 是否继续保留
-- `profiles` 是否暂时冻结或重新设计
-
-### 3. 收紧文件状态机与中断恢复
-
-当前 `files.status = active` 的写入时机偏早，`registerFile()` 在扫描/登记阶段就会把文件设为 `active` 并覆盖 `hash`。
+- 拆开 `observed_hash` 和 `indexed_hash`
+- 收紧 `files.status = active`
+- 让 `scanVault()` 可以识别并修复半完成状态
+- 给 `sync_jobs.status = running` 设计启动恢复策略
 
 详细方案见 [P0 可恢复索引内核 RFC](p0-recoverable-index-kernel.md)。
 
-后续集中处理时，需要把 `active` 收紧为全流程成功后的最终确认：
+### 2. 再完成 Milestone B：同步模型稳定化
 
-```text
-发现文件
-→ parse
-→ normalized document
-→ chunks
-→ embedding
-→ vector 写入
-→ document ready
-→ file active
-```
+当 `files` 状态机稳定后，再收紧同步过程模型。
 
-重点问题：
+重点处理：
 
-- 处理成功前是否允许覆盖 `files.hash`
-- 是否拆分 `observed_hash` 与 `indexed_hash`
-- 是否引入 pending/processing/discovered 这类中间语义
-- 进程中断后如何识别半完成状态并重新 reconcile
-- 残留 `sync_jobs.status = running` 的启动恢复策略
+- `sync_jobs` 的生命周期是否足够表达恢复语义
+- 同一 file 是否需要强制串行化
+- 失败后如何重试
+- repair reconcile 由谁触发
 
-### 4. 设计 watcher
+这一步的目标是把“同步过程记录”推进成“可恢复的同步模型”。
 
-建议先设计，不急着直接实现。
+### 3. 然后设计 Milestone C：watcher
+
+建议先设计事件流，再开始实现。
 
 推荐方向：
 
@@ -65,18 +52,18 @@
 → watcher 收集文件事件
 → debounce 合并事件
 → 投递 reconcile 请求
-→ 后台同步队列处理
+→ 后台同步执行
 ```
 
 第一版 rename 可以先按 delete + new 处理。
 
 移动识别后续再靠 hash/fingerprint 设计。
 
-### 5. 设计异步同步 runner
+### 4. 再做 Milestone D：异步同步 runner
 
-当前 `sync_jobs` 是过程记录，不是任务队列。
+当前 `sync_jobs` 仍然不是任务队列。
 
-后续如果要异步化，需要讨论：
+后续如果要异步化，需要集中讨论：
 
 - job 创建时机
 - running/succeeded/failed 的恢复策略
@@ -84,7 +71,9 @@
 - 并发锁和同一 file 的串行化
 - UI 如何展示同步中和失败可重试
 
-### 6. 再考虑 `document_blocks`
+建议在 watcher 事件模型清楚后，再接入后台 runner。
+
+### 5. 最后做 Milestone E：结构与检索质量
 
 `document_blocks` 应该等 parser 和标准文档格式稳定后再做。
 
@@ -94,10 +83,6 @@
 - 页码
 - 段落/列表/代码块/表格结构
 - chunk 与原文结构的映射
-
-当前不急。
-
-### 7. 最后再优化生成侧
 
 Retrieval 数据稳定后，再处理：
 
@@ -110,7 +95,10 @@ Retrieval 数据稳定后，再处理：
 
 ## 当前明确不做
 
+在 `Milestone A` 和 `Milestone B` 完成前：
+
 - 不直接上 Electron
 - 不把 watcher 和 async runner 混在一起一次做完
 - 不提前实现 `document_blocks`
-- 不重写生成侧
+- 不先重写生成侧
+- 不先把精力投到 UI 美化或 prompt 调优
