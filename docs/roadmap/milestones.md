@@ -102,7 +102,11 @@ v0.4.x
 - watcher 事件收集
 - debounce / 合并策略
 - delete + new 版 rename 处理
-- 后台同步入口的最小接线
+- 初始 scan 与自动 scan 的最小接线
+
+关键文档：
+
+- [P2 文件监听最小方案](p2-watcher-minimal.md)
 
 完成标准：
 
@@ -216,7 +220,7 @@ Milestone A
 
 ## 当前明确不建议优先做
 
-在 `Milestone A` 完成前，不建议优先投入：
+在 watcher 第一版完成前，不建议优先投入：
 
 - Electron
 - 复杂 UI 美化
@@ -224,6 +228,7 @@ Milestone A
 - answer 质量调优
 - rename/move 的复杂指纹识别
 - `document_blocks`
+- 完整自动 retry 调度器
 
 这些方向都重要，但现在不是 ROI 最高的阶段。
 
@@ -231,12 +236,11 @@ Milestone A
 
 ### 现在就做
 
-- 以 `Milestone A` 的实现和测试作为当前稳定地基
-- 进入 `Milestone B` 的同步过程模型设计
-- 先收紧 `sync_jobs` 语义，不急着实现 watcher 或 runner
+- 以 `Milestone A/B` 的最小实现作为当前稳定地基
+- 进入 `Milestone C` 的 watcher 最小版
+- 先让 Vault 文件变化能自动触发 reconcile
 
 ### 紧接着做
 
-- 把 `sync_jobs` 的恢复语义收紧
-- 明确单文件串行化策略
-- 设计 watcher 的事件模型，但先不急着大规模实现
+- 补轻量后台 runner 与同步状态接口
+- 让前端能看到同步中、失败和最近同步结果
