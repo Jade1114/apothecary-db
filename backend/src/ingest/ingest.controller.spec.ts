@@ -531,6 +531,66 @@ describe('IngestController', () => {
         ).toHaveLength(2);
     });
 
+    it('should mark interrupted running jobs and repair affected files on scan', async () => {
+        const filePath = join(vaultPath, 'interrupted.md');
+        await writeFile(filePath, '# Interrupted\n\n第一段', 'utf8');
+        await ingestController.scanVault();
+
+        const database = databaseService.getDatabase();
+        const file = database.prepare('SELECT id FROM files WHERE path = ?').get(filePath) as {
+            id: number;
+        };
+        const embedCallsAfterFirstScan = (embeddingService.embedText as jest.Mock).mock.calls.length;
+        const runningJobId = Number(
+            database
+                .prepare(
+                    "INSERT INTO sync_jobs (file_id, job_type, status, updated_at) VALUES (?, 'index', 'running', CURRENT_TIMESTAMP)",
+                )
+                .run(file.id).lastInsertRowid,
+        );
+
+        const repairScan = await ingestController.scanVault();
+        const interruptedJob = database
+            .prepare('SELECT status, error_message FROM sync_jobs WHERE id = ?')
+            .get(runningJobId) as {
+                status: string;
+                error_message: string | null;
+            };
+        const repairedFile = database
+            .prepare('SELECT status, observed_hash, indexed_hash FROM files WHERE id = ?')
+            .get(file.id) as {
+                status: string;
+                observed_hash: string;
+                indexed_hash: string;
+            };
+
+        expect(interruptedJob).toEqual({
+            status: 'failed',
+            error_message: 'interrupted',
+        });
+        expect((embeddingService.embedText as jest.Mock).mock.calls.length).toBeGreaterThan(
+            embedCallsAfterFirstScan,
+        );
+        expect(repairedFile.status).toBe('active');
+        expect(repairedFile.indexed_hash).toBe(repairedFile.observed_hash);
+        expect(repairScan.importedCount).toBe(1);
+        expect(repairScan.skippedCount).toBe(0);
+        expect(repairScan.breakdown).toEqual({
+            newCount: 0,
+            changedCount: 1,
+            unchangedCount: 0,
+            deletedCount: 0,
+        });
+        expect(repairScan.items).toEqual([
+            expect.objectContaining({
+                filePath,
+                event: 'changed',
+                action: 'indexed',
+                success: true,
+            }),
+        ]);
+    });
+
     it('should scan vault and import only supported files', async () => {
         await mkdir(join(vaultPath, 'nested'), { recursive: true });
         await mkdir(join(vaultPath, '.apothecary'), { recursive: true });

@@ -149,6 +149,20 @@ export class FilesService {
         this.updateStatus(fileId, 'error');
     }
 
+    markInterrupted(fileId: number): void {
+        const database = this.databaseService.getDatabase();
+        database
+            .prepare(
+                `
+                UPDATE files
+                SET status = 'error', updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                  AND status != 'deleted'
+                `,
+            )
+            .run(fileId);
+    }
+
     recordNormalizedDocument(fileId: number, normalizedPath: string): void {
         const database = this.databaseService.getDatabase();
         database

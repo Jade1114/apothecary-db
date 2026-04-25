@@ -11,6 +11,7 @@ import type { FileRecord, RegisterFileResult } from '../files/types/file.types';
 import { NormalizedDocumentService } from '../parser/normalized-document.service';
 import { ParserService } from '../parser/parser.service';
 import { SyncJobsService } from '../sync/sync-jobs.service';
+import type { SyncJobRecord } from '../sync/types/sync-job.types';
 import { VECTOR_STORE } from '../vector/vector-store';
 import type { VectorStore } from '../vector/vector-store';
 import type { VectorPoint } from '../vector/types/vector.types';
@@ -66,6 +67,8 @@ export class IngestService {
     }
 
     async scanVault(): Promise<VaultScanResponse> {
+        this.markInterruptedFilesForRepair(this.syncJobsService.markRunningJobsInterrupted());
+
         return this.syncJobsService.runJob('scan', null, async () => {
             const files = await this.collectSupportedFiles(this.configService.vaultPath);
             const items: VaultScanItem[] = [];
@@ -430,6 +433,18 @@ export class IngestService {
     private markExistingDocumentsStale(documents: DocumentRecord[]): void {
         for (const document of documents) {
             this.documentsService.setDocumentStatuses(document.id, 'stale', 'stale');
+        }
+    }
+
+    private markInterruptedFilesForRepair(jobs: SyncJobRecord[]): void {
+        const fileIds = new Set(
+            jobs
+                .map((job) => job.file_id)
+                .filter((fileId): fileId is number => typeof fileId === 'number'),
+        );
+
+        for (const fileId of fileIds) {
+            this.filesService.markInterrupted(fileId);
         }
     }
 

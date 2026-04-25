@@ -16,7 +16,9 @@
 `scanVault()` 的当前流程：
 
 ```text
-扫描 Vault 支持文件
+标记残留 running sync_jobs 为 failed/interrupted
+→ 将关联 file 标记为 error，等待修复式 reconcile
+→ 扫描 Vault 支持文件
 → 对每个 seen file 调用 registerFile
 → reconcile present file
 → 找出本轮没 seen 到的旧 file
@@ -107,6 +109,27 @@ embedding 在事务外完成。
 
 如果已有旧版本，当前会用 `stale` 表达“旧版本仍可作为回退检索内容”。
 
+## 残留 running job 恢复
+
+`scanVault()` 开始时会先处理上次异常退出留下的 `running` job。
+
+恢复规则：
+
+- 残留 `sync_jobs.status = running` 会被标记为 `failed`
+- `error_message` 写入 `interrupted`
+- 如果 job 关联了 `file_id`，对应 file 会被标记为 `error`
+- 已经 `deleted` 的 file 不会被恢复成 `error`
+
+这样做的目的不是立刻假装索引成功，而是让后续 reconcile 明确知道：
+
+```text
+这个文件曾经在处理过程中被中断
+→ 当前 indexed_hash 不能被盲目信任
+→ 必须重新检查并修复
+```
+
+当前恢复入口仍然挂在 `scanVault()` 开始处，还没有应用启动时自动触发的 runner。
+
 ## 文件版本确认语义
 
 当前文件版本语义已经拆成两层：
@@ -142,7 +165,7 @@ registerFile 已经看到新文件版本
 
 仍待后续处理：
 
-- 应用启动时处理残留 `sync_jobs.status = running` 的恢复策略
+- 应用启动时主动触发同一套恢复 / scan 流程
 - 同一文件并发 reconcile 的串行化规则
 
 ## 删除 reconcile

@@ -2,8 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import type { SyncJobRecord, SyncJobType } from './types/sync-job.types';
 
+const INTERRUPTED_ERROR_MESSAGE = 'interrupted';
+
 @Injectable()
 export class SyncJobsService {
+    private readonly activeJobIds = new Set<number>();
+
     constructor(private readonly databaseService: DatabaseService) {}
 
     startJob(jobType: SyncJobType, fileId: number | null = null): SyncJobRecord {
@@ -17,15 +21,53 @@ export class SyncJobsService {
             )
             .run(fileId, jobType);
 
-        return this.getJobById(Number(result.lastInsertRowid));
+        const job = this.getJobById(Number(result.lastInsertRowid));
+        this.activeJobIds.add(job.id);
+        return job;
     }
 
     markSucceeded(jobId: number): void {
-        this.updateJob(jobId, 'succeeded', null);
+        try {
+            this.updateJob(jobId, 'succeeded', null);
+        } finally {
+            this.activeJobIds.delete(jobId);
+        }
     }
 
     markFailed(jobId: number, errorMessage: string): void {
-        this.updateJob(jobId, 'failed', errorMessage);
+        try {
+            this.updateJob(jobId, 'failed', errorMessage);
+        } finally {
+            this.activeJobIds.delete(jobId);
+        }
+    }
+
+    markRunningJobsInterrupted(): SyncJobRecord[] {
+        const interruptedJobs = this.listRunningJobs().filter(
+            (job) => !this.activeJobIds.has(job.id),
+        );
+        if (interruptedJobs.length === 0) {
+            return [];
+        }
+
+        const database = this.databaseService.getDatabase();
+        const jobIds = interruptedJobs.map((job) => job.id);
+        const placeholders = jobIds.map(() => '?').join(', ');
+        database
+            .prepare(
+                `
+                UPDATE sync_jobs
+                SET status = 'failed', error_message = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id IN (${placeholders})
+                `,
+            )
+            .run(INTERRUPTED_ERROR_MESSAGE, ...jobIds);
+
+        return interruptedJobs.map((job) => ({
+            ...job,
+            status: 'failed',
+            error_message: INTERRUPTED_ERROR_MESSAGE,
+        }));
     }
 
     async runJob<T>(
@@ -56,6 +98,20 @@ export class SyncJobsService {
                 `,
             )
             .get(jobId) as SyncJobRecord;
+    }
+
+    private listRunningJobs(): SyncJobRecord[] {
+        const database = this.databaseService.getDatabase();
+        return database
+            .prepare(
+                `
+                SELECT id, file_id, job_type, status, error_message, created_at, updated_at
+                FROM sync_jobs
+                WHERE status = 'running'
+                ORDER BY id ASC
+                `,
+            )
+            .all() as SyncJobRecord[];
     }
 
     private updateJob(

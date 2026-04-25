@@ -173,6 +173,10 @@ sqlite-vec 虚拟表。
 - `succeeded`
 - `failed`
 
+`scanVault()` 开始时会把残留的 `running` job 标记为 `failed`，并把 `error_message` 写成 `interrupted`。
+
+如果残留 job 关联了 `file_id`，对应 file 会被标记为 `error`，让后续 reconcile 走修复式重建，而不是误判为 unchanged。
+
 ## 可选或历史表
 
 ### `profiles`
