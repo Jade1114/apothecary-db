@@ -9,6 +9,7 @@ import { DocumentsModule } from '../documents/documents.module';
 import { DocumentsService } from '../documents/documents.service';
 import { EmbeddingService } from '../embedding/embedding.service';
 import { EmbeddingModule } from '../embedding/embedding.module';
+import { FilesService } from '../files/files.service';
 import { ParserModule } from '../parser/parser.module';
 import { ProfilesModule } from '../profiles/profiles.module';
 import { VectorModule } from '../vector/vector.module';
@@ -22,6 +23,7 @@ describe('IngestController', () => {
     let databaseService: DatabaseService;
     let documentsService: DocumentsService;
     let embeddingService: EmbeddingService;
+    let filesService: FilesService;
     let vectorStore: VectorStore;
     let vaultPath: string;
 
@@ -50,6 +52,7 @@ describe('IngestController', () => {
         ingestController = app.get<IngestController>(IngestController);
         documentsService = app.get(DocumentsService);
         embeddingService = app.get(EmbeddingService);
+        filesService = app.get(FilesService);
         vectorStore = app.get<VectorStore>(VECTOR_STORE);
 
         const upsertPoints = vectorStore.upsertPoints.bind(vectorStore);
@@ -380,6 +383,83 @@ describe('IngestController', () => {
         ]);
     });
 
+    it('should re-index a file when it reappears at the same path after deletion', async () => {
+        const filePath = join(vaultPath, 'revived.md');
+        await writeFile(filePath, '# Revived\n\n旧内容', 'utf8');
+        await ingestController.scanVault();
+
+        const database = databaseService.getDatabase();
+        const originalFile = database
+            .prepare('SELECT id, indexed_hash FROM files WHERE path = ?')
+            .get(filePath) as { id: number; indexed_hash: string };
+        const originalDocument = database
+            .prepare('SELECT id FROM documents WHERE file_id = ?')
+            .get(originalFile.id) as { id: number };
+        const embedCallsAfterFirstScan = (embeddingService.embedText as jest.Mock).mock.calls.length;
+
+        await unlink(filePath);
+        await ingestController.scanVault();
+
+        const deletedFile = database
+            .prepare('SELECT status, deleted_at FROM files WHERE id = ?')
+            .get(originalFile.id) as { status: string; deleted_at: string | null };
+        const deletedDocumentCount = database
+            .prepare('SELECT COUNT(*) AS count FROM documents WHERE file_id = ?')
+            .get(originalFile.id) as { count: number };
+        expect(deletedFile.status).toBe('deleted');
+        expect(deletedFile.deleted_at).toBeTruthy();
+        expect(deletedDocumentCount.count).toBe(0);
+
+        await writeFile(filePath, '# Revived\n\n新内容', 'utf8');
+        const restoreScan = await ingestController.scanVault();
+
+        const restoredFile = database
+            .prepare(
+                'SELECT id, hash, observed_hash, indexed_hash, status, deleted_at, normalized_retained_at FROM files WHERE path = ?',
+            )
+            .get(filePath) as {
+                id: number;
+                hash: string;
+                observed_hash: string;
+                indexed_hash: string;
+                status: string;
+                deleted_at: string | null;
+                normalized_retained_at: string | null;
+            };
+        const restoredDocument = database
+            .prepare('SELECT id, plain_text FROM documents WHERE file_id = ?')
+            .get(originalFile.id) as { id: number; plain_text: string };
+
+        expect(restoredFile.id).toBe(originalFile.id);
+        expect(restoredFile.status).toBe('active');
+        expect(restoredFile.deleted_at).toBeNull();
+        expect(restoredFile.normalized_retained_at).toBeNull();
+        expect(restoredFile.hash).toBe(restoredFile.observed_hash);
+        expect(restoredFile.indexed_hash).toBe(restoredFile.observed_hash);
+        expect(restoredFile.indexed_hash).not.toBe(originalFile.indexed_hash);
+        expect(restoredDocument.id).not.toBe(originalDocument.id);
+        expect(restoredDocument.plain_text).toContain('新内容');
+        expect((embeddingService.embedText as jest.Mock).mock.calls.length).toBeGreaterThan(
+            embedCallsAfterFirstScan,
+        );
+        expect(restoreScan.importedCount).toBe(1);
+        expect(restoreScan.skippedCount).toBe(0);
+        expect(restoreScan.breakdown).toEqual({
+            newCount: 0,
+            changedCount: 1,
+            unchangedCount: 0,
+            deletedCount: 0,
+        });
+        expect(restoreScan.items).toEqual([
+            expect.objectContaining({
+                filePath,
+                event: 'changed',
+                action: 'indexed',
+                success: true,
+            }),
+        ]);
+    });
+
     it('should preserve the last indexed version when re-indexing fails', async () => {
         const filePath = join(vaultPath, 'resilient.txt');
         await writeFile(filePath, '旧内容', 'utf8');
@@ -529,6 +609,90 @@ describe('IngestController', () => {
                 documentId: document.id,
             }),
         ).toHaveLength(2);
+    });
+
+    it('should repair a file observed before an interrupted update', async () => {
+        const filePath = join(vaultPath, 'half-finished.md');
+        await writeFile(filePath, '# Half\n\n旧内容', 'utf8');
+        await ingestController.scanVault();
+
+        const database = databaseService.getDatabase();
+        const originalFile = database
+            .prepare('SELECT id, indexed_hash FROM files WHERE path = ?')
+            .get(filePath) as { id: number; indexed_hash: string };
+        const originalDocument = database
+            .prepare('SELECT id, plain_text FROM documents WHERE file_id = ?')
+            .get(originalFile.id) as { id: number; plain_text: string };
+        const embedCallsAfterFirstScan = (embeddingService.embedText as jest.Mock).mock.calls.length;
+
+        await writeFile(filePath, '# Half\n\n新内容\n\n第二段', 'utf8');
+        const registration = await filesService.registerFile('half-finished.md');
+        const interruptedFile = database
+            .prepare('SELECT observed_hash, indexed_hash, status FROM files WHERE id = ?')
+            .get(originalFile.id) as {
+                observed_hash: string;
+                indexed_hash: string;
+                status: string;
+            };
+        const runningJobId = Number(
+            database
+                .prepare(
+                    "INSERT INTO sync_jobs (file_id, job_type, status, updated_at) VALUES (?, 'parse', 'running', CURRENT_TIMESTAMP)",
+                )
+                .run(originalFile.id).lastInsertRowid,
+        );
+
+        expect(registration.shouldProcess).toBe(true);
+        expect(registration.reason).toBe('changed');
+        expect(interruptedFile.status).toBe('error');
+        expect(interruptedFile.indexed_hash).toBe(originalFile.indexed_hash);
+        expect(interruptedFile.observed_hash).not.toBe(interruptedFile.indexed_hash);
+
+        const repairScan = await ingestController.scanVault();
+        const interruptedJob = database
+            .prepare('SELECT status, error_message FROM sync_jobs WHERE id = ?')
+            .get(runningJobId) as { status: string; error_message: string | null };
+        const repairedFile = database
+            .prepare('SELECT hash, observed_hash, indexed_hash, status FROM files WHERE id = ?')
+            .get(originalFile.id) as {
+                hash: string;
+                observed_hash: string;
+                indexed_hash: string;
+                status: string;
+            };
+        const repairedDocument = database
+            .prepare('SELECT id, plain_text FROM documents WHERE file_id = ?')
+            .get(originalFile.id) as { id: number; plain_text: string };
+
+        expect(interruptedJob).toEqual({
+            status: 'failed',
+            error_message: 'interrupted',
+        });
+        expect(repairedFile.status).toBe('active');
+        expect(repairedFile.hash).toBe(repairedFile.observed_hash);
+        expect(repairedFile.indexed_hash).toBe(repairedFile.observed_hash);
+        expect(repairedDocument.id).toBe(originalDocument.id);
+        expect(repairedDocument.plain_text).not.toBe(originalDocument.plain_text);
+        expect(repairedDocument.plain_text).toContain('新内容');
+        expect((embeddingService.embedText as jest.Mock).mock.calls.length).toBeGreaterThan(
+            embedCallsAfterFirstScan,
+        );
+        expect(repairScan.importedCount).toBe(1);
+        expect(repairScan.skippedCount).toBe(0);
+        expect(repairScan.breakdown).toEqual({
+            newCount: 0,
+            changedCount: 1,
+            unchangedCount: 0,
+            deletedCount: 0,
+        });
+        expect(repairScan.items).toEqual([
+            expect.objectContaining({
+                filePath,
+                event: 'changed',
+                action: 'indexed',
+                success: true,
+            }),
+        ]);
     });
 
     it('should mark interrupted running jobs and repair affected files on scan', async () => {
