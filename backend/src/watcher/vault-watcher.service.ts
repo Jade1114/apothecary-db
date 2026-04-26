@@ -44,10 +44,6 @@ export class VaultWatcherService
         }
 
         await this.start();
-
-        if (this.watcher) {
-            this.syncCoordinatorService.requestScan('startup');
-        }
     }
 
     onApplicationShutdown(): void {

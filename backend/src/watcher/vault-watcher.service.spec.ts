@@ -50,7 +50,7 @@ describe('VaultWatcherService', () => {
         await rm(vaultPath, { recursive: true, force: true });
     });
 
-    it('should start watching and request an initial scan on bootstrap', async () => {
+    it('should start watching on bootstrap', async () => {
         await service.onApplicationBootstrap();
 
         expect(watchFactory).toHaveBeenCalledWith(
@@ -58,9 +58,7 @@ describe('VaultWatcherService', () => {
             { recursive: true },
             expect.any(Function),
         );
-        expect(syncCoordinatorService.requestScan).toHaveBeenCalledWith(
-            'startup',
-        );
+        expect(syncCoordinatorService.requestScan).not.toHaveBeenCalled();
     });
 
     it('should forward supported file events and ignore internal paths', async () => {

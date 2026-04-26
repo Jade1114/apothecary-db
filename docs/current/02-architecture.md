@@ -86,11 +86,19 @@ Model Providers
 
 它不会直接 parse/index/delete，也不会直接执行扫描，只会过滤文件事件并向同步协调层提交扫描请求。
 
+它不负责启动扫描。
+
+### `startup-sync`
+
+负责后端启动后的第一次扫描触发。
+
+它在应用 bootstrap 后向同步协调层提交 `startup` scan，请求一次全量对账。
+
 ### `sync-coordinator`
 
 负责后端内部的扫描调度。
 
-它接收 watcher 提交的扫描请求，做 debounce、串行化和扫描中补跑，最后调用 `IngestService.scanVault()`。
+它接收 startup-sync 和 watcher 提交的扫描请求，做 debounce、串行化和扫描中补跑，最后调用 `IngestService.scanVault()`。
 
 ### `embedding`
 
@@ -127,7 +135,7 @@ Model Providers
 推荐理解为：
 
 ```text
-controller / watcher
+controller / startup-sync / watcher
 → sync-coordinator / ingest / rag
 → files / parser / documents / sync / embedding / vector / llm
 → database / config

@@ -46,7 +46,6 @@ Vault 可能变了，请重新对账。
 ```text
 后端启动
 → 启动 watcher
-→ 向 SyncCoordinator 请求一次初始 scan
 → 收集 add/change/unlink 事件
 → 忽略内部目录和明显无关文件
 → 向 SyncCoordinator 请求 scan
@@ -76,6 +75,9 @@ backend/src/watcher/vault-watcher.service.ts
   - 启动和关闭文件监听
   - 过滤文件事件
   - 调用 `SyncCoordinatorService.requestScan()`
+- `StartupSyncService`
+  - 后端启动后提交一次 startup scan
+  - 独立于 watcher 开关
 - `SyncCoordinatorService`
   - debounce 合并扫描请求
   - 保证 `scanVault()` 不并发执行
@@ -95,6 +97,14 @@ watcher
 → sync-coordinator
 → ingest.scanVault()
 → files/parser/documents/embedding/vector/sync
+```
+
+启动扫描是另一条触发源：
+
+```text
+startup-sync
+→ sync-coordinator
+→ ingest.scanVault()
 ```
 
 ## 事件范围
@@ -192,6 +202,8 @@ scanVault() 结束
 
 注意：
 
+- 启动 scan 不属于 watcher 职责。
+- watcher disabled 只表示不监听后续文件变化，不应影响启动 scan。
 - 不建议阻塞 Nest 应用启动。
 - 可以 fire-and-forget 执行初始 scan。
 - 错误先记录日志，后续同步状态接口再展示给前端。

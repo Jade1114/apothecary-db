@@ -17,6 +17,29 @@
 - `pending` 暂时保留给后续 runner
 - repair 不是独立 job type，而是 reconcile 重新执行 `parse/index/delete` 的原因
 
+## 扫描触发源
+
+当前后端有两种扫描触发源：
+
+- 后端服务启动
+- Vault 文件监听事件
+
+两种触发源都会进入 `SyncCoordinatorService`。
+
+## 启动扫描
+
+后端启动后，`StartupSyncService` 会提交一次 startup scan：
+
+```text
+后端启动
+→ StartupSyncService
+→ SyncCoordinator.requestScan("startup")
+```
+
+启动扫描独立于 watcher。
+
+即使 `APOTHECARY_WATCHER_ENABLED=false`，后端启动后仍然会请求一次 startup scan。
+
 ## watcher 流程
 
 后端启动后会启动 Vault watcher。
@@ -26,13 +49,14 @@
 ```text
 后端启动
 → 启动 watcher
-→ 向 SyncCoordinator 提交 startup scan 请求
 → 收集文件 add/change/delete 类事件
 → 忽略 .apothecary/.obsidian/node_modules 和明显无关文件
 → 向 SyncCoordinator 提交 scan 请求
 ```
 
 watcher 不直接执行 parse/index/delete，也不直接调用 `scanVault()`。
+
+watcher disabled 只表示不监听后续文件变化，不影响启动扫描。
 
 ## 同步协调层
 

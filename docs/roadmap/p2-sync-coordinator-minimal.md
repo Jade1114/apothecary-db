@@ -20,12 +20,17 @@ Vault 文件变化
 P2 这一小步要把它拆开：
 
 ```text
-watcher
-→ SyncCoordinator.requestScan(reason)
-→ ingest.scanVault()
+startup trigger ┐
+                ├→ SyncCoordinator.requestScan(reason)
+watcher trigger ┘
+                  → ingest.scanVault()
 ```
 
-这样 watcher 只负责“发现变化”，同步协调层负责“让扫描请求安全执行”。
+这样启动扫描和文件监听扫描是两种独立触发源，但都会进入同一个同步协调层。
+
+watcher 只负责“发现文件变化”。
+
+同步协调层负责“让扫描请求安全执行”。
 
 ## 设计原则
 
@@ -53,6 +58,9 @@ backend/src/sync-coordinator/sync-coordinator.service.ts
   - 启动 / 关闭文件监听
   - 过滤 watcher 事件
   - 把有效事件转成 `requestScan(reason)`
+- `StartupSyncService`
+  - 在应用启动后请求一次 `startup` scan
+  - 不依赖 watcher 是否启用
 - `SyncCoordinatorService`
   - 接受扫描请求
   - debounce 合并请求
@@ -66,11 +74,43 @@ backend/src/sync-coordinator/sync-coordinator.service.ts
 模块依赖方向：
 
 ```text
-watcher
-→ sync-coordinator
+startup-sync ┐
+             ├→ sync-coordinator
+watcher ─────┘
 → ingest
 → files/parser/documents/embedding/vector/sync
 ```
+
+## 扫描触发源
+
+当前后端有两类扫描触发源。
+
+### 启动扫描
+
+后端服务启动后，应请求一次全量 scan。
+
+目的：
+
+- 发现服务关闭期间发生的文件变化。
+- 触发 `scanVault()` 开头的残留 `running` job 收口。
+- 让桌面应用启动后自动完成一次对账。
+
+启动扫描不属于 watcher 职责。
+
+即使 `APOTHECARY_WATCHER_ENABLED=false`，启动扫描仍然应该执行。
+
+### 文件监听扫描
+
+watcher 只处理服务运行期间的文件变化。
+
+当 Vault 目录发生有效文件事件时：
+
+```text
+VaultWatcherService
+→ SyncCoordinatorService.requestScan("watcher:<event>:<path>")
+```
+
+如果 watcher 被禁用，只是不监听后续文件变化，不影响启动扫描。
 
 ## 第一版状态模型
 
@@ -171,9 +211,12 @@ APOTHECARY_SYNC_DEBOUNCE_MS
 
 - watcher 不再直接调用 `IngestService.scanVault()`。
 - watcher 不再持有 `scanInFlight / scanRequested / debounceTimer`。
-- watcher 只在启动成功后请求一次 `startup` scan。
+- watcher 不负责启动扫描。
+- startup scan 由独立启动触发服务提交。
+- watcher disabled 时，startup scan 仍然会提交。
 - 文件事件只调用 `SyncCoordinatorService.requestScan()`。
 - coordinator 单测覆盖 debounce、扫描中补跑、失败后可再次触发、close 后不触发。
+- startup trigger 单测覆盖应用启动后提交 `startup` scan。
 - watcher 单测只覆盖启动、关闭、事件过滤和请求转发。
 - 不新增 controller。
 - 不新增前端代码。

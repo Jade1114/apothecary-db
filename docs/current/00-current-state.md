@@ -37,7 +37,7 @@ Vault 文件
 
 ## 当前核心保障
 
-- 后端启动后会监听 Vault 文件变化，并通过同步协调层 debounce 后自动触发全量扫描。
+- 后端启动后会通过同步协调层自动触发一次全量扫描，并监听 Vault 文件变化。
 - 删除文件后，`files` 保留 `deleted`，在线 `documents/chunks/chunk_vectors/sqlite-vec` 会清理。
 - 未变化文件不会只凭 document 行跳过，会检查 chunk、chunk_vectors、sqlite-vec 点是否完整。
 - 文件变化重建失败时，旧 document 和旧向量尽量保持可检索。
