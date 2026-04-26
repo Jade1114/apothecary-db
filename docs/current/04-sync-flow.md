@@ -21,23 +21,39 @@
 
 后端启动后会启动 Vault watcher。
 
-第一版 watcher 只负责事件合并和触发扫描：
+第一版 watcher 只负责事件过滤和提交扫描请求：
 
 ```text
 后端启动
 → 启动 watcher
-→ debounce 后异步触发一次初始 scanVault()
+→ 向 SyncCoordinator 提交 startup scan 请求
 → 收集文件 add/change/delete 类事件
 → 忽略 .apothecary/.obsidian/node_modules 和明显无关文件
-→ debounce 合并事件
-→ 调用 scanVault()
+→ 向 SyncCoordinator 提交 scan 请求
 ```
 
-如果 `scanVault()` 运行期间又收到文件事件，watcher 不会并发启动第二个扫描。
+watcher 不直接执行 parse/index/delete，也不直接调用 `scanVault()`。
 
-它会记录一次 pending scan，等当前扫描结束后再补跑一次。
+## 同步协调层
 
-watcher 不直接执行 parse/index/delete。
+`SyncCoordinatorService` 负责扫描请求的进程内调度。
+
+当前规则：
+
+```text
+requestScan(reason)
+→ debounce 合并短时间内的请求
+→ 如果当前没有扫描，调用 scanVault()
+→ 如果 scanVault() 运行期间又收到请求，记录 pending scan
+→ 当前扫描结束后补跑一次 scanVault()
+```
+
+这样做可以保证：
+
+- watcher 高频事件不会一事件一扫描。
+- 同一进程内不会并发执行多个全量 scan。
+- scan 期间发生的新变化不会丢。
+- scan 失败后，后续请求仍然可以再次触发 scan。
 
 真正状态推进仍然只发生在 `scanVault()` 和后续 reconcile 里。
 

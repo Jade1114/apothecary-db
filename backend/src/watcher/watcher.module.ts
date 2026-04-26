@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
 import { watch } from 'node:fs';
-import { IngestModule } from '../ingest/ingest.module';
+import { SyncCoordinatorModule } from '../sync-coordinator/sync-coordinator.module';
 import { VAULT_WATCH_FACTORY } from './watcher.types';
 import { VaultWatcherService } from './vault-watcher.service';
 
 @Module({
-    imports: [IngestModule],
+    imports: [SyncCoordinatorModule],
     providers: [
         VaultWatcherService,
         {

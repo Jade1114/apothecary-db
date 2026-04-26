@@ -84,7 +84,13 @@ Model Providers
 
 负责监听 Vault 文件变化。
 
-它不会直接 parse/index/delete，只会 debounce 文件事件并触发 `IngestService.scanVault()`，让现有 reconcile 逻辑继续作为唯一权威入口。
+它不会直接 parse/index/delete，也不会直接执行扫描，只会过滤文件事件并向同步协调层提交扫描请求。
+
+### `sync-coordinator`
+
+负责后端内部的扫描调度。
+
+它接收 watcher 提交的扫描请求，做 debounce、串行化和扫描中补跑，最后调用 `IngestService.scanVault()`。
 
 ### `embedding`
 
@@ -122,7 +128,7 @@ Model Providers
 
 ```text
 controller / watcher
-→ ingest / rag
+→ sync-coordinator / ingest / rag
 → files / parser / documents / sync / embedding / vector / llm
 → database / config
 ```
