@@ -22,7 +22,7 @@ export class RagService {
 
         const limit = input.limit ?? 5;
         const queryVector = await this.embeddingService.embedText(cleanedQuery);
-        const points = await this.vectorStore.search({
+        const points = this.vectorStore.search({
             queryVector,
             limit,
             documentId: input.documentId,
@@ -32,7 +32,7 @@ export class RagService {
             id: point.id,
             documentId: this.getNumberValue(point.payload.documentId),
             chunkIndex: this.getNumberValue(point.payload.chunkIndex),
-            content: String(point.payload.content ?? ''),
+            content: this.getStringValue(point.payload.content) ?? '',
             sourceType: this.getStringValue(point.payload.sourceType),
             sourceName: this.getStringValue(point.payload.sourceName),
         }));

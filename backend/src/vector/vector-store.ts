@@ -4,9 +4,9 @@ export const VECTOR_STORE = Symbol('VECTOR_STORE');
 
 export interface VectorStore {
     getProviderInfo(): VectorProviderInfo;
-    ensureIndex(): Promise<void>;
-    upsertPoints(points: VectorPoint[]): Promise<void>;
-    search(input: SearchVectorInput): Promise<VectorPoint[]>;
-    deleteByDocumentId(documentId: number): Promise<void>;
-    countPointsByDocumentId(documentId: number): Promise<number>;
+    ensureIndex(): void;
+    upsertPoints(points: VectorPoint[]): void;
+    search(input: SearchVectorInput): VectorPoint[];
+    deleteByDocumentId(documentId: number): void;
+    countPointsByDocumentId(documentId: number): number;
 }

@@ -73,7 +73,7 @@ export class SyncJobsService {
     async runJob<T>(
         jobType: SyncJobType,
         fileId: number | null,
-        work: () => Promise<T>,
+        work: () => T | Promise<T>,
     ): Promise<T> {
         const job = this.startJob(jobType, fileId);
 

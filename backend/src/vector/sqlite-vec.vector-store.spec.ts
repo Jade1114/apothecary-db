@@ -30,7 +30,7 @@ describe('SqliteVecVectorStore', () => {
         });
     });
 
-    it('should filter search results by document id before applying the limit', async () => {
+    it('should filter search results by document id before applying the limit', () => {
         const database = databaseService.getDatabase();
         database
             .prepare(
@@ -69,7 +69,7 @@ describe('SqliteVecVectorStore', () => {
             )
             .run('alpha', 'beta');
 
-        await vectorStore.upsertPoints([
+        vectorStore.upsertPoints([
             {
                 id: '1',
                 vector: [1, 0, 0],
@@ -86,11 +86,11 @@ describe('SqliteVecVectorStore', () => {
             },
         ]);
 
-        const globalResults = await vectorStore.search({
+        const globalResults = vectorStore.search({
             queryVector: [1, 0, 0],
             limit: 1,
         });
-        const scopedResults = await vectorStore.search({
+        const scopedResults = vectorStore.search({
             queryVector: [1, 0, 0],
             limit: 1,
             documentId: 2,
@@ -102,7 +102,7 @@ describe('SqliteVecVectorStore', () => {
         expect(scopedResults[0].payload.documentId).toBe(2);
     });
 
-    it('should exclude deleted files from search results', async () => {
+    it('should exclude deleted files from search results', () => {
         const database = databaseService.getDatabase();
         database
             .prepare(
@@ -136,7 +136,7 @@ describe('SqliteVecVectorStore', () => {
             )
             .run('gone');
 
-        await vectorStore.upsertPoints([
+        vectorStore.upsertPoints([
             {
                 id: '1',
                 vector: [1, 0, 0],
@@ -146,11 +146,11 @@ describe('SqliteVecVectorStore', () => {
             },
         ]);
 
-        await expect(
+        expect(
             vectorStore.search({
                 queryVector: [1, 0, 0],
                 limit: 5,
             }),
-        ).resolves.toEqual([]);
+        ).toEqual([]);
     });
 });

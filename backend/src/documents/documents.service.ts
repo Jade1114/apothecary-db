@@ -4,6 +4,7 @@ import type { ChunkRecord, ChunkVectorRecord } from './types/chunk.types';
 import type {
     CreateDocumentResult,
     DocumentIndexStatus,
+    DocumentListItem,
     DocumentParseStatus,
     DocumentRecord,
 } from './types/document.types';
@@ -12,7 +13,7 @@ import type {
 export class DocumentsService {
     constructor(private readonly databaseService: DatabaseService) {}
 
-    listDocuments(): DocumentRecord[] {
+    listDocuments(): DocumentListItem[] {
         const database = this.databaseService.getDatabase();
         return database
             .prepare(
@@ -20,7 +21,6 @@ export class DocumentsService {
                 SELECT
                     documents.id,
                     documents.file_id,
-                    documents.plain_text,
                     documents.source_type,
                     documents.source_name,
                     documents.title,
@@ -40,7 +40,7 @@ export class DocumentsService {
                 ORDER BY documents.id DESC
                 `,
             )
-            .all() as DocumentRecord[];
+            .all() as DocumentListItem[];
     }
 
     getDocumentById(id: number): DocumentRecord {

@@ -115,7 +115,7 @@ export class IngestService {
             for (const file of missingFiles) {
                 try {
                     await this.withFileLock(file.path, async () => {
-                        await this.syncJobsService.runJob('delete', file.id, async () =>
+                        await this.syncJobsService.runJob('delete', file.id, () =>
                             this.reconcileDeletedFile(file),
                         );
                     });
@@ -181,7 +181,7 @@ export class IngestService {
         if (
             !registration.shouldProcess &&
             existingDocument &&
-            (await this.isDocumentHealthy(registration.file, existingDocument, existingDocuments.length))
+            this.isDocumentHealthy(registration.file, existingDocument, existingDocuments.length)
         ) {
             const chunkCount = this.documentsService.countChunks(existingDocument.id);
             return {
@@ -274,12 +274,12 @@ export class IngestService {
     }): Promise<IngestResponse> {
         const chunks = this.splitIntoChunks(input.content);
         const vectors = await Promise.all(chunks.map((chunk) => this.embeddingService.embedText(chunk)));
-        return this.databaseService.withTransaction(async () => {
+        return this.databaseService.withTransaction(() => {
             const existingDocument = input.existingDocuments[0] ?? null;
             const duplicateDocuments = input.existingDocuments.slice(1);
 
             for (const duplicateDocument of duplicateDocuments) {
-                await this.vectorStore.deleteByDocumentId(duplicateDocument.id);
+                this.vectorStore.deleteByDocumentId(duplicateDocument.id);
                 this.documentsService.deleteDocumentCascade(duplicateDocument.id);
             }
 
@@ -314,7 +314,7 @@ export class IngestService {
                     parseStatus: 'ready',
                     indexStatus: 'stale',
                 });
-                await this.vectorStore.deleteByDocumentId(documentId);
+                this.vectorStore.deleteByDocumentId(documentId);
                 this.documentsService.deleteDocumentArtifacts(documentId);
             }
 
@@ -332,7 +332,7 @@ export class IngestService {
                 },
             }));
 
-            await this.vectorStore.upsertPoints(points);
+            this.vectorStore.upsertPoints(points);
             this.documentsService.createChunkVectorRecords(
                 points.map((point, index) => ({
                     chunkId: chunkRecords[index].id,
@@ -394,11 +394,11 @@ export class IngestService {
         );
     }
 
-    private async isDocumentHealthy(
+    private isDocumentHealthy(
         file: FileRecord,
         document: DocumentRecord,
         documentCount: number,
-    ): Promise<boolean> {
+    ): boolean {
         if (file.status !== 'active') {
             return false;
         }
@@ -425,16 +425,16 @@ export class IngestService {
             return false;
         }
 
-        const vectorPointCount = await this.vectorStore.countPointsByDocumentId(document.id);
+        const vectorPointCount = this.vectorStore.countPointsByDocumentId(document.id);
         return vectorPointCount === chunkCount;
     }
 
-    private async reconcileDeletedFile(file: FileRecord): Promise<void> {
+    private reconcileDeletedFile(file: FileRecord): void {
         const documents = this.documentsService.listDocumentsByFileId(file.id);
 
-        await this.databaseService.withTransaction(async () => {
+        this.databaseService.withTransaction(() => {
             for (const document of documents) {
-                await this.vectorStore.deleteByDocumentId(document.id);
+                this.vectorStore.deleteByDocumentId(document.id);
                 this.documentsService.deleteDocumentCascade(document.id);
             }
 

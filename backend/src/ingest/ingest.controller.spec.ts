@@ -25,6 +25,8 @@ describe('IngestController', () => {
     let embeddingService: EmbeddingService;
     let filesService: FilesService;
     let vectorStore: VectorStore;
+    let upsertPointsSpy: jest.SpiedFunction<VectorStore['upsertPoints']>;
+    let deleteByDocumentIdSpy: jest.SpiedFunction<VectorStore['deleteByDocumentId']>;
     let vaultPath: string;
 
     beforeEach(async () => {
@@ -55,13 +57,9 @@ describe('IngestController', () => {
         filesService = app.get(FilesService);
         vectorStore = app.get<VectorStore>(VECTOR_STORE);
 
-        const upsertPoints = vectorStore.upsertPoints.bind(vectorStore);
-        const deleteByDocumentId = vectorStore.deleteByDocumentId.bind(vectorStore);
         jest.spyOn(embeddingService, 'embedText').mockResolvedValue([0.1, 0.2, 0.3]);
-        jest.spyOn(vectorStore, 'upsertPoints').mockImplementation((points) => upsertPoints(points));
-        jest.spyOn(vectorStore, 'deleteByDocumentId').mockImplementation((documentId) =>
-            deleteByDocumentId(documentId),
-        );
+        upsertPointsSpy = jest.spyOn(vectorStore, 'upsertPoints');
+        deleteByDocumentIdSpy = jest.spyOn(vectorStore, 'deleteByDocumentId');
     });
 
     it('should ingest content and return chunk count', async () => {
@@ -205,7 +203,7 @@ describe('IngestController', () => {
 
         await ingestController.scanVault();
         const embedCallsAfterFirstScan = (embeddingService.embedText as jest.Mock).mock.calls.length;
-        const upsertCallsAfterFirstScan = (vectorStore.upsertPoints as jest.Mock).mock.calls.length;
+        const upsertCallsAfterFirstScan = upsertPointsSpy.mock.calls.length;
 
         const secondScan = await ingestController.scanVault();
 
@@ -218,7 +216,7 @@ describe('IngestController', () => {
         expect(fileCount.count).toBe(1);
         expect(documentCount.count).toBe(1);
         expect((embeddingService.embedText as jest.Mock).mock.calls.length).toBe(embedCallsAfterFirstScan);
-        expect((vectorStore.upsertPoints as jest.Mock).mock.calls.length).toBe(upsertCallsAfterFirstScan);
+        expect(upsertPointsSpy.mock.calls.length).toBe(upsertCallsAfterFirstScan);
         expect(secondScan.importedCount).toBe(0);
         expect(secondScan.skippedCount).toBe(1);
         expect(secondScan.deletedCount).toBe(0);
@@ -344,7 +342,7 @@ describe('IngestController', () => {
         expect(document.plain_text).toContain('新内容');
         expect(documentCount.count).toBe(1);
         expect(chunkCount.count).toBe(2);
-        expect(vectorStore.deleteByDocumentId).toHaveBeenCalledTimes(1);
+        expect(deleteByDocumentIdSpy).toHaveBeenCalledTimes(1);
         expect(secondScan.importedCount).toBe(1);
         expect(secondScan.skippedCount).toBe(0);
         expect(secondScan.deletedCount).toBe(0);
@@ -374,7 +372,7 @@ describe('IngestController', () => {
             .prepare('SELECT id, file_id, normalized_path FROM documents WHERE source_path = ?')
             .get(filePath) as { id: number; file_id: number; normalized_path: string };
         expect(
-            await vectorStore.search({
+            vectorStore.search({
                 queryVector: [0.1, 0.2, 0.3],
                 limit: 5,
             }),
@@ -421,7 +419,7 @@ describe('IngestController', () => {
         expect(chunkEmbeddingCount.count).toBe(0);
         expect(documentsService.listDocuments()).toEqual([]);
         expect(
-            await vectorStore.search({
+            vectorStore.search({
                 queryVector: [0.1, 0.2, 0.3],
                 limit: 5,
             }),
@@ -537,7 +535,9 @@ describe('IngestController', () => {
             .get(filePath) as { id: number; plain_text: string };
 
         await writeFile(filePath, '新内容\n\n第二段', 'utf8');
-        (vectorStore.upsertPoints as jest.Mock).mockRejectedValueOnce(new Error('vector write failed'));
+        upsertPointsSpy.mockImplementationOnce(() => {
+            throw new Error('vector write failed');
+        });
 
         const result = await ingestController.scanVault();
         const file = database
@@ -589,19 +589,13 @@ describe('IngestController', () => {
         expect(after.plain_text).toBe(before.plain_text);
         expect(after.parse_status).toBe('stale');
         expect(after.index_status).toBe('stale');
-        expect(
-            await vectorStore.search({
-                queryVector: [0.1, 0.2, 0.3],
-                limit: 5,
-            }),
-        ).toEqual([
-            expect.objectContaining({
-                payload: expect.objectContaining({
-                    documentId: before.id,
-                    content: '旧内容',
-                }),
-            }),
-        ]);
+        const results = vectorStore.search({
+            queryVector: [0.1, 0.2, 0.3],
+            limit: 5,
+        });
+        expect(results).toHaveLength(1);
+        expect(results[0].payload.documentId).toBe(before.id);
+        expect(results[0].payload.content).toBe('旧内容');
         expect(jobs.at(-1)).toEqual({
             job_type: 'index',
             status: 'failed',
@@ -669,7 +663,7 @@ describe('IngestController', () => {
             }),
         ]);
         expect(
-            await vectorStore.search({
+            vectorStore.search({
                 queryVector: [0.1, 0.2, 0.3],
                 limit: 5,
                 documentId: document.id,

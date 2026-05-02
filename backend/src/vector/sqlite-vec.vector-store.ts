@@ -21,7 +21,7 @@ export class SqliteVecVectorStore implements VectorStore {
         };
     }
 
-    async ensureIndex(): Promise<void> {
+    ensureIndex(): void {
         const database = this.databaseService.getDatabase();
         database.exec(`
             CREATE VIRTUAL TABLE IF NOT EXISTS ${SQLITE_VEC_TABLE}
@@ -29,12 +29,12 @@ export class SqliteVecVectorStore implements VectorStore {
         `);
     }
 
-    async upsertPoints(points: VectorPoint[]): Promise<void> {
+    upsertPoints(points: VectorPoint[]): void {
         if (points.length === 0) {
             return;
         }
 
-        await this.ensureIndex();
+        this.ensureIndex();
         const database = this.databaseService.getDatabase();
         const deleteStatement = database.prepare(`DELETE FROM ${SQLITE_VEC_TABLE} WHERE rowid = ?`);
 
@@ -47,12 +47,12 @@ export class SqliteVecVectorStore implements VectorStore {
         }
     }
 
-    async search(input: SearchVectorInput): Promise<VectorPoint[]> {
+    search(input: SearchVectorInput): VectorPoint[] {
         if (input.queryVector.length === 0) {
             throw new Error('search 不接受空 queryVector');
         }
 
-        await this.ensureIndex();
+        this.ensureIndex();
         const database = this.databaseService.getDatabase();
         const limit = input.limit ?? 5;
         const scopedFilter =
@@ -100,8 +100,8 @@ export class SqliteVecVectorStore implements VectorStore {
         }));
     }
 
-    async deleteByDocumentId(documentId: number): Promise<void> {
-        await this.ensureIndex();
+    deleteByDocumentId(documentId: number): void {
+        this.ensureIndex();
         const database = this.databaseService.getDatabase();
         const rows = database
             .prepare('SELECT id FROM chunks WHERE document_id = ?')
@@ -113,8 +113,8 @@ export class SqliteVecVectorStore implements VectorStore {
         }
     }
 
-    async countPointsByDocumentId(documentId: number): Promise<number> {
-        await this.ensureIndex();
+    countPointsByDocumentId(documentId: number): number {
+        this.ensureIndex();
         const database = this.databaseService.getDatabase();
         const row = database
             .prepare(

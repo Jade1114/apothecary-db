@@ -19,12 +19,14 @@ export type DocumentRecord = {
     updated_at: string;
 };
 
+export type DocumentListItem = Omit<DocumentRecord, 'plain_text'>;
+
 export type CreateDocumentResult = {
     documentId: number;
 };
 
 export type DocumentsListResponse = {
-    documents: DocumentRecord[];
+    documents: DocumentListItem[];
 };
 
 export type DocumentDetailResponse = {

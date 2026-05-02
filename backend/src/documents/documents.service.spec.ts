@@ -38,6 +38,16 @@ describe('DocumentsService', () => {
         expect(document.plain_text).toBe('测试资料');
     });
 
+    it('should omit full text from document list items', () => {
+        documentsService.createDocument('列表不应该返回这段全文', 'note', 'list-item');
+
+        const documents = documentsService.listDocuments();
+
+        expect(documents).toHaveLength(1);
+        expect(documents[0].source_name).toBe('list-item');
+        expect(documents[0]).not.toHaveProperty('plain_text');
+    });
+
     it('should create chunks and chunk vector mappings', () => {
         const created = documentsService.createDocument('第一段\n\n第二段', 'note', 'chunks');
         const chunks = documentsService.createChunks(created.documentId, ['第一段', '第二段']);

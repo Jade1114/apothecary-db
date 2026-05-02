@@ -1,6 +1,12 @@
 import { Injectable, Logger, OnApplicationShutdown } from '@nestjs/common';
 import { ConfigService } from '../config/config.service';
 import { IngestService } from '../ingest/ingest.service';
+import type { VaultScanResponse } from '../ingest/types/vault-scan.types';
+
+type ScanWaiter = {
+    resolve: (result: VaultScanResponse) => void;
+    reject: (error: unknown) => void;
+};
 
 @Injectable()
 export class SyncCoordinatorService implements OnApplicationShutdown {
@@ -9,6 +15,7 @@ export class SyncCoordinatorService implements OnApplicationShutdown {
     private scanInFlight = false;
     private scanRequested = false;
     private pendingScanReason = 'unknown';
+    private scanWaiters: ScanWaiter[] = [];
     private closed = false;
 
     constructor(
@@ -30,11 +37,28 @@ export class SyncCoordinatorService implements OnApplicationShutdown {
         this.resetDebounceTimer();
     }
 
+    runScanNow(reason: string): Promise<VaultScanResponse> {
+        if (this.closed) {
+            return Promise.reject(new Error('SyncCoordinatorService is closed'));
+        }
+
+        this.scanRequested = true;
+        this.pendingScanReason = reason;
+        this.clearDebounceTimer();
+
+        const result = new Promise<VaultScanResponse>((resolve, reject) => {
+            this.scanWaiters.push({ resolve, reject });
+        });
+        void this.drainScanQueue();
+        return result;
+    }
+
     close(): void {
         this.closed = true;
         this.clearDebounceTimer();
 
         this.scanRequested = false;
+        this.rejectPendingWaiters(new Error('SyncCoordinatorService is closed'));
     }
 
     private resetDebounceTimer(): void {
@@ -58,8 +82,14 @@ export class SyncCoordinatorService implements OnApplicationShutdown {
             while (this.scanRequested && !this.closed) {
                 this.clearDebounceTimer();
                 const reason = this.pendingScanReason;
+                const waiters = this.consumePendingWaiters();
                 this.scanRequested = false;
-                await this.runScan(reason);
+                try {
+                    const result = await this.runScan(reason);
+                    this.resolveWaiters(waiters, result);
+                } catch (error) {
+                    this.rejectWaiters(waiters, error);
+                }
             }
         } finally {
             this.scanInFlight = false;
@@ -77,17 +107,41 @@ export class SyncCoordinatorService implements OnApplicationShutdown {
         }
     }
 
-    private async runScan(reason: string): Promise<void> {
+    private async runScan(reason: string): Promise<VaultScanResponse> {
         try {
             this.logger.log(`Running vault scan: ${reason}`);
             const result = await this.ingestService.scanVault();
             this.logger.log(
                 `Vault scan finished: scanned=${result.scannedCount}, imported=${result.importedCount}, deleted=${result.deletedCount}, failed=${result.failedCount}`,
             );
+            return result;
         } catch (error) {
             this.logger.error(
                 `Vault scan failed: ${this.getErrorMessage(error)}`,
             );
+            throw error;
+        }
+    }
+
+    private consumePendingWaiters(): ScanWaiter[] {
+        const waiters = this.scanWaiters;
+        this.scanWaiters = [];
+        return waiters;
+    }
+
+    private resolveWaiters(waiters: ScanWaiter[], result: VaultScanResponse): void {
+        for (const waiter of waiters) {
+            waiter.resolve(result);
+        }
+    }
+
+    private rejectPendingWaiters(error: unknown): void {
+        this.rejectWaiters(this.consumePendingWaiters(), error);
+    }
+
+    private rejectWaiters(waiters: ScanWaiter[], error: unknown): void {
+        for (const waiter of waiters) {
+            waiter.reject(error);
         }
     }
 

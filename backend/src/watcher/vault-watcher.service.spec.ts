@@ -18,7 +18,8 @@ describe('VaultWatcherService', () => {
     let listener: VaultWatchListener;
     let fakeWatcher: FakeWatcher;
     let watchFactory: jest.MockedFunction<VaultWatchFactory>;
-    let syncCoordinatorService: { requestScan: jest.Mock<void, [string]> };
+    let requestScan: jest.MockedFunction<(reason: string) => void>;
+    let syncCoordinatorService: Pick<SyncCoordinatorService, 'requestScan'>;
     let service: VaultWatcherService;
 
     beforeEach(async () => {
@@ -33,8 +34,9 @@ describe('VaultWatcherService', () => {
             listener = watchListener;
             return fakeWatcher as unknown as FSWatcher;
         });
+        requestScan = jest.fn<(reason: string) => void>();
         syncCoordinatorService = {
-            requestScan: jest.fn(),
+            requestScan,
         };
 
         service = new VaultWatcherService(
@@ -58,7 +60,7 @@ describe('VaultWatcherService', () => {
             { recursive: true },
             expect.any(Function),
         );
-        expect(syncCoordinatorService.requestScan).not.toHaveBeenCalled();
+        expect(requestScan).not.toHaveBeenCalled();
     });
 
     it('should forward supported file events and ignore internal paths', async () => {
@@ -69,12 +71,12 @@ describe('VaultWatcherService', () => {
         listener('change', '.apothecary/normalized/alpha.md');
         listener('change', 'image.png');
 
-        expect(syncCoordinatorService.requestScan).toHaveBeenCalledTimes(2);
-        expect(syncCoordinatorService.requestScan).toHaveBeenNthCalledWith(
+        expect(requestScan).toHaveBeenCalledTimes(2);
+        expect(requestScan).toHaveBeenNthCalledWith(
             1,
             'change:alpha.md',
         );
-        expect(syncCoordinatorService.requestScan).toHaveBeenNthCalledWith(
+        expect(requestScan).toHaveBeenNthCalledWith(
             2,
             'change:alpha.md',
         );
@@ -85,9 +87,7 @@ describe('VaultWatcherService', () => {
 
         listener('rename', null);
 
-        expect(syncCoordinatorService.requestScan).toHaveBeenCalledWith(
-            'rename:unknown',
-        );
+        expect(requestScan).toHaveBeenCalledWith('rename:unknown');
     });
 
     it('should close the watcher', async () => {

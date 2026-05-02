@@ -103,15 +103,14 @@ export class DatabaseService implements OnModuleInit {
         this.ensureColumn('files', 'indexed_hash', 'TEXT');
         this.ensureColumn('files', 'observed_at', 'DATETIME');
         this.ensureColumn('files', 'indexed_at', 'DATETIME');
-        this.ensureColumn(
-            'files',
-            'last_seen_at',
-            'DATETIME DEFAULT CURRENT_TIMESTAMP',
-        );
+        this.ensureColumn('files', 'last_seen_at', 'DATETIME');
         this.ensureColumn('files', 'deleted_at', 'DATETIME');
         this.ensureColumn('files', 'last_normalized_path', 'TEXT');
         this.ensureColumn('files', 'normalized_retained_at', 'DATETIME');
+        this.ensureColumn('documents', 'file_id', 'INTEGER');
         this.ensureColumn('documents', 'plain_text', 'TEXT');
+        this.ensureColumn('documents', 'source_type', 'TEXT');
+        this.ensureColumn('documents', 'source_name', 'TEXT');
         this.ensureColumn('documents', 'title', 'TEXT');
         this.ensureColumn('documents', 'source_path', 'TEXT');
         this.ensureColumn('documents', 'normalized_path', 'TEXT');
@@ -119,16 +118,13 @@ export class DatabaseService implements OnModuleInit {
         this.ensureColumn('documents', 'parser_version', 'TEXT');
         this.ensureColumn('documents', 'parse_status', "TEXT DEFAULT 'ready'");
         this.ensureColumn('documents', 'index_status', "TEXT DEFAULT 'failed'");
-        this.ensureColumn(
-            'documents',
-            'updated_at',
-            'DATETIME DEFAULT CURRENT_TIMESTAMP',
-        );
+        this.ensureColumn('documents', 'updated_at', 'DATETIME');
         this.ensureColumn('chunks', 'text', 'TEXT');
         this.ensureColumn('chunks', 'token_count', 'INTEGER');
         this.ensureColumn('chunks', 'source_block_start', 'INTEGER');
         this.ensureColumn('chunks', 'source_block_end', 'INTEGER');
         this.ensureColumn('chunks', 'metadata_json', 'TEXT');
+        this.backfillTimestampColumns();
         this.backfillDocumentPlainText();
         this.backfillChunkText();
         this.dropColumnIfExists('documents', 'content');
@@ -145,23 +141,23 @@ export class DatabaseService implements OnModuleInit {
      * 在事务中执行数据库操作。
      * * 该方法遵循 ACID 原则：
      * 1. 自动开启事务 (`BEGIN IMMEDIATE`) 以防止死锁。
-     * 2. 执行传入的业务逻辑 `work`。
+     * 2. 同步执行传入的业务逻辑 `work`。
      * 3. 若成功则 `COMMIT`，若捕获到任何异常则自动 `ROLLBACK`。
      * * @template T 业务逻辑返回值的类型。
-     * @param {() => Promise<T>} work 需要在事务中执行的异步回调函数。
+     * @param {() => T} work 需要在事务中执行的同步回调函数。
      * @returns {Promise<T>} 返回回调函数的执行结果。
      * @throws {Error} 重新抛出 `work` 执行期间产生的错误，或数据库指令失败的错误。
      * * @example
-     * await repository.withTransaction(async () => {
-     * await repository.updateInventory(itemId, -1);
-     * await repository.createOrder(orderData);
+     * repository.withTransaction(() => {
+     * repository.updateInventory(itemId, -1);
+     * repository.createOrder(orderData);
      * });
      */
-    async withTransaction<T>(work: () => Promise<T>): Promise<T> {
+    withTransaction<T>(work: () => T): T {
         this.database.exec('BEGIN IMMEDIATE');
 
         try {
-            const result = await work();
+            const result = work();
             this.database.exec('COMMIT');
             return result;
         } catch (error) {
@@ -199,6 +195,18 @@ export class DatabaseService implements OnModuleInit {
         this.database.exec(
             `ALTER TABLE ${tableName} DROP COLUMN ${columnName}`,
         );
+    }
+
+    private backfillTimestampColumns(): void {
+        this.database.exec(`
+          UPDATE files
+          SET last_seen_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
+          WHERE last_seen_at IS NULL;
+
+          UPDATE documents
+          SET updated_at = COALESCE(created_at, CURRENT_TIMESTAMP)
+          WHERE updated_at IS NULL;
+        `);
     }
 
     private normalizeLegacyDocumentStatuses(): void {

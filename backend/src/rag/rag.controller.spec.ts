@@ -18,6 +18,7 @@ describe('RagController', () => {
     let embeddingService: EmbeddingService;
     let vectorStore: VectorStore;
     let llmService: LlmService;
+    let searchSpy: jest.SpiedFunction<VectorStore['search']>;
 
     beforeEach(async () => {
         process.env.DATABASE_PATH = ':memory:';
@@ -35,7 +36,7 @@ describe('RagController', () => {
         llmService = app.get(LlmService);
 
         jest.spyOn(embeddingService, 'embedText').mockResolvedValue([0.1, 0.2, 0.3]);
-        jest.spyOn(vectorStore, 'search').mockResolvedValue([
+        searchSpy = jest.spyOn(vectorStore, 'search').mockReturnValue([
             {
                 id: 'point-1',
                 vector: [],
@@ -58,7 +59,7 @@ describe('RagController', () => {
             limit: 3,
         });
 
-        expect(vectorStore.search).toHaveBeenCalledWith({
+        expect(searchSpy).toHaveBeenCalledWith({
             queryVector: [0.1, 0.2, 0.3],
             limit: 3,
             documentId: 22,

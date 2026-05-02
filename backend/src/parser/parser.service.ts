@@ -57,26 +57,26 @@ export class ParserService {
                 });
             case '.pdf': {
                 const parser = new PDFParse({ data: fileBuffer });
-                const textResult = await parser.getText();
-                const infoResult = await parser.getInfo();
-                await parser.destroy();
+                try {
+                    const textResult = await parser.getText();
+                    const infoResult = await parser.getInfo();
 
-                return this.createNormalizedDocument({
-                    sourcePath,
-                    sourceName,
-                    sourceType: 'pdf',
-                    extension,
-                    hash,
-                    size: stats.size,
-                    generatedAt,
-                    parser: 'pdf-file-parser',
-                    parserVersion: 'v1',
-                    rawText: textResult.text.trim(),
-                    title:
-                        typeof infoResult.info?.Title === 'string'
-                            ? infoResult.info.Title
-                            : null,
-                });
+                    return this.createNormalizedDocument({
+                        sourcePath,
+                        sourceName,
+                        sourceType: 'pdf',
+                        extension,
+                        hash,
+                        size: stats.size,
+                        generatedAt,
+                        parser: 'pdf-file-parser',
+                        parserVersion: 'v1',
+                        rawText: textResult.text.trim(),
+                        title: this.extractPdfTitle(infoResult.info as unknown),
+                    });
+                } finally {
+                    await parser.destroy();
+                }
             }
             case '.docx': {
                 const parsed = await mammoth.extractRawText({
@@ -166,6 +166,15 @@ export class ParserService {
         }
 
         return resolvedPath;
+    }
+
+    private extractPdfTitle(info: unknown): string | null {
+        if (!info || typeof info !== 'object' || !('Title' in info)) {
+            return null;
+        }
+
+        const title = info.Title;
+        return typeof title === 'string' ? title : null;
     }
 
     private markdownToPlainText(content: string): string {
