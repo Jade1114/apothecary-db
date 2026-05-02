@@ -52,6 +52,10 @@ Model Providers
 
 所有模块都通过 `DatabaseService` 获取数据库连接。
 
+当前迁移策略是对已有表逐列补齐主链路需要的字段。
+
+旧库中的 `documents` 表如果缺少 `file_id/source_type/source_name` 等当前查询依赖字段，启动时会通过轻量迁移补齐，避免 `GET /documents`、`GET /documents/:id` 或 vector search 在 join `documents.file_id` 时失败。
+
 ### `files`
 
 负责原始文件身份。
@@ -62,9 +66,18 @@ Model Providers
 
 负责把原始文件转成标准化文档对象，并把标准化文档落盘为 `yaml + md`。
 
+当前支持 `txt/md/pdf/docx`。
+
+PDF 解析会在异常路径中释放 parser 资源，避免批量扫描损坏 PDF 时泄漏解析器资源。
+
 ### `documents`
 
 负责标准文档、chunks、chunk_vectors 的关系型数据读写。
+
+对外读接口分为两层：
+
+- `listDocuments()` / `GET /documents` 只返回列表 metadata，不返回 `plain_text`。
+- `getDocumentById()` / `GET /documents/:id` 返回单文档详情和 `plain_text`。
 
 它也负责 document 级联清理。
 
@@ -111,6 +124,8 @@ Model Providers
 负责向量存储抽象和 sqlite-vec 实现。
 
 业务层依赖 `VectorStore` 接口，不直接依赖 sqlite-vec 细节。
+
+当前 sqlite-vec 实现是本地同步 SQLite 操作，写入、查询、删除等 provider 方法也保持同步边界，避免数据库事务中跨 `await`。
 
 ### `rag`
 

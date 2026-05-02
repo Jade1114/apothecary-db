@@ -99,6 +99,19 @@ sync_jobs
 
 `documents` 不长期保留 `deleted`。原始文件删除后，在线 document 会被清理。
 
+当前 API 可见性：
+
+- 文档列表只返回 `documents` metadata，不返回 `plain_text`。
+- 单文档详情才返回 `plain_text`。
+
+这样避免调试台打开或同步刷新时拉取整库正文。
+
+兼容迁移：
+
+- 旧库如果缺少 `file_id`，启动时会补为 nullable `INTEGER`。
+- 旧库如果缺少 `source_type/source_name`，启动时会补为 nullable `TEXT`。
+- 旧的手动 ingest 文档允许 `file_id IS NULL`，仍可作为在线可见文档参与列表和检索。
+
 ## `chunks`
 
 检索块表。

@@ -4,7 +4,7 @@
 
 当前已经有 watcher，但还没有异步任务 runner。
 
-同步可以由 watcher 或 API 请求触发：
+同步可以由 watcher、启动扫描或 API 请求触发：
 
 - `POST /ingest/file`
 - `POST /ingest/vault-scan`
@@ -19,12 +19,13 @@
 
 ## 扫描触发源
 
-当前后端有两种扫描触发源：
+当前后端有三种扫描触发源：
 
 - 后端服务启动
 - Vault 文件监听事件
+- 手动 `POST /ingest/vault-scan`
 
-两种触发源都会进入 `SyncCoordinatorService`。
+三种触发源都会进入 `SyncCoordinatorService`。
 
 ## 启动扫描
 
@@ -57,6 +58,21 @@
 watcher 不直接执行 parse/index/delete，也不直接调用 `scanVault()`。
 
 watcher disabled 只表示不监听后续文件变化，不影响启动扫描。
+
+## 手动扫描
+
+`POST /ingest/vault-scan` 是当前前端调试台的手动同步入口。
+
+它不会直接调用 `scanVault()`，而是提交给同步协调层：
+
+```text
+前端 / API
+→ POST /ingest/vault-scan
+→ SyncCoordinator.runScanNow("api:vault-scan")
+→ scanVault()
+```
+
+这样手动扫描也会复用同一套进程内串行化规则，不会和 startup scan 或 watcher scan 并发执行。
 
 ## 同步协调层
 
@@ -213,7 +229,7 @@ embedding 在事务外完成。
 → 必须重新检查并修复
 ```
 
-当前恢复入口仍然挂在 `scanVault()` 开始处，还没有应用启动时自动触发的 runner。
+恢复入口仍然挂在 `scanVault()` 开始处。启动扫描、手动扫描和 watcher 触发的扫描都会进入同一入口，因此应用启动或下一次扫描请求都能收口残留 `running` job。
 
 ## 同一文件进程内串行化
 
@@ -265,7 +281,6 @@ registerFile 已经看到新文件版本
 
 仍待后续处理：
 
-- 应用启动时主动触发同一套恢复 / scan 流程
 - runner 级别的同一文件串行化规则
 
 ## 删除 reconcile

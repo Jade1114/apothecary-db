@@ -6,7 +6,16 @@
 
 也就是说，系统已经开始以 Vault 中的原始文件为入口，生成标准化文档，写入 SQLite，切分 chunk，并把向量写进 sqlite-vec。
 
-前端仍然是调试工作台，不是最终产品 UI。后端是当前主要重构对象。
+前端仍然是调试工作台，不是最终产品 UI。
+
+当前前端已经从早期表单 demo 调整为 Vault Workspace 调试台：
+
+- 文档列表
+- 选中文档正文阅读
+- 手动触发 Vault 同步
+- RAG 查询与 evidence 展示
+
+后端仍然是当前主要重构对象。
 
 ## 已经打通的主链路
 
@@ -35,6 +44,10 @@ Vault 文件
 
 `POST /ingest` 是手动文本调试入口，当前主线已经转向 Vault 文件扫描。
 
+`GET /documents` 只返回在线可见文档的列表 metadata，不返回 `plain_text` 全文。
+
+`GET /documents/:id` 返回单个在线可见文档详情，包括 `plain_text`。
+
 ## 当前核心保障
 
 - 后端启动后会通过同步协调层自动触发一次全量扫描，并监听 Vault 文件变化。
@@ -42,6 +55,8 @@ Vault 文件
 - 未变化文件不会只凭 document 行跳过，会检查 chunk、chunk_vectors、sqlite-vec 点是否完整。
 - 文件变化重建失败时，旧 document 和旧向量尽量保持可检索。
 - `/documents` 和 vector search 只面向在线可见数据。
+- 文档列表接口不会拉取整库正文，前端需要展示正文时再请求单文档详情。
+- 旧 SQLite 库启动时会补齐当前查询依赖的 `documents.file_id/source_type/source_name` 等列。
 - `documents.content` 和 `chunks.content` 兼容字段已经从主 schema 和主读写路径移除。
 
 ## 当前边界
@@ -66,11 +81,25 @@ cd backend
 pnpm exec jest --runInBand
 ```
 
+后端 lint：
+
+```bash
+cd backend
+pnpm lint
+```
+
 后端构建：
 
 ```bash
 cd backend
 pnpm build
+```
+
+前端 lint：
+
+```bash
+cd frontend
+pnpm lint
 ```
 
 前端构建：

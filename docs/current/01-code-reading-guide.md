@@ -16,6 +16,8 @@
 - `parser`
 - `documents`
 - `sync`
+- `sync-coordinator`
+- `watcher`
 - `ingest`
 - `embedding`
 - `vector`
@@ -78,11 +80,29 @@ parser 回答“不同文件格式如何变成统一文本”：
 重点理解：
 
 - `documents.plain_text` 是标准正文
+- `GET /documents` / `listDocuments()` 只返回 metadata，不返回全文
+- `GET /documents/:id` / `getDocumentById()` 才返回 `plain_text`
 - `chunks.text` 是检索块正文
 - `parse_status` 和 `index_status` 如何控制可见性
 - 删除 document 时如何清理下游 artifacts
 
-## 6. 看同步编排
+## 6. 看同步触发与协调
+
+当前 watcher、启动扫描和手动 Vault scan 都通过同步协调层触发 scan：
+
+- `backend/src/sync-coordinator/sync-coordinator.service.ts`
+- `backend/src/sync-coordinator/startup-sync.service.ts`
+- `backend/src/watcher/vault-watcher.service.ts`
+
+重点理解：
+
+- 启动扫描独立于 watcher 开关
+- `POST /ingest/vault-scan` 也进入 `SyncCoordinatorService`
+- watcher 只过滤事件并提交 `requestScan`
+- `SyncCoordinatorService` 负责 debounce、串行 scan 和扫描中补跑
+- watcher 不直接 parse/index/delete
+
+## 7. 看同步编排
 
 当前最重要的业务编排在这里：
 
@@ -100,7 +120,7 @@ parser 回答“不同文件格式如何变成统一文本”：
 
 它们串起了文件扫描、parse、index、删除回收和 fast path 健康检查。
 
-## 7. 看 sync_jobs
+## 8. 看 sync_jobs
 
 `sync_jobs` 记录同步过程尝试，不保存业务内容：
 
@@ -115,7 +135,7 @@ parser 回答“不同文件格式如何变成统一文本”：
 - `repair` 不是独立 job type
 - 是否需要重新处理文件，仍由 `files` 状态、hash 差异和索引健康检查决定
 
-## 8. 看向量层
+## 9. 看向量层
 
 向量层通过接口隔离 provider：
 
@@ -129,8 +149,9 @@ parser 回答“不同文件格式如何变成统一文本”：
 - sqlite-vec rowid 对齐 `chunks.id`
 - `chunk_vectors` 是关系层映射表
 - search 会过滤 deleted file 和不可见 document
+- sqlite-vec 当前是本地同步实现，provider 写入/查询/删除接口也是同步边界
 
-## 9. 看 Retrieval 与生成
+## 10. 看 Retrieval 与生成
 
 当前 RAG 入口：
 
@@ -140,7 +161,7 @@ parser 回答“不同文件格式如何变成统一文本”：
 
 当前阶段重点是 Retrieval。`RagService` 仍然会在有 evidence 时调用 LLM，但生成质量不是本阶段优化重点。
 
-## 10. 看前端调试台
+## 11. 看前端调试台
 
 前端主要用于触发和观察：
 
@@ -149,5 +170,7 @@ parser 回答“不同文件格式如何变成统一文本”：
 它目前提供：
 
 - Vault 扫描
-- 手动文本 ingest
+- 文档列表
+- 单文档正文阅读
 - RAG 查询
+- evidence 展示
